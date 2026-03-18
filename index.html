@@ -151,13 +151,19 @@ async function saveWorkoutStats(durationMin, kcal) {
     ? (currentUser.stats.streak || 0) + 1
     : 1;
 
+  // Add today to workoutDates array (avoid duplicates)
+  const existingDates = currentUser.stats?.workoutDates || [];
+  const updatedDates = existingDates.includes(today) ? existingDates : [...existingDates, today];
+
   await updateDoc(doc(db, "users", currentUser.uid), {
     "stats.totalWorkouts": increment(1),
     "stats.totalMinutes": increment(durationMin),
     "stats.totalKcal": increment(kcal),
     "stats.streak": newStreak,
-    "stats.lastWorkout": today
+    "stats.lastWorkout": today,
+    "stats.workoutDates": updatedDates
   });
+  currentUser.stats.workoutDates = updatedDates;
   currentUser.stats.totalWorkouts = (currentUser.stats.totalWorkouts || 0) + 1;
   currentUser.stats.totalMinutes = (currentUser.stats.totalMinutes || 0) + durationMin;
   currentUser.stats.totalKcal = (currentUser.stats.totalKcal || 0) + kcal;
@@ -256,6 +262,7 @@ function showApp() {
   document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
   renderExercises();
   renderWeek();
+  renderPlan();
   switchPage('dnes', document.querySelector('.nav-item'));
 }
 
@@ -294,6 +301,7 @@ window.switchPage = function(pageId, navEl) {
   if (navEl) navEl.classList.add('active');
   window.scrollTo(0,0);
   if (pageId === 'statistiky') loadLeaderboard();
+  if (pageId === 'plan') renderPlan();
 };
 
 window.showAuthScreen = showAuthScreen;
@@ -472,19 +480,66 @@ window.closeTimer = function() {
 // ═══════════════════════════════════════════
 // WEEK GRID
 // ═══════════════════════════════════════════
+function getWeekDates() {
+  // Returns array of ISO date strings for Mon-Sun of current week
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
 function renderWeek() {
   const grid = document.getElementById('weekGrid');
-  const dayShort = ['Ne','Po','Út','St','Čt','Pá','So'];
+  const dayShort = ['Po','Út','St','Čt','Pá','So','Ne'];
   const now = new Date();
-  const todayIdx = now.getDay();
-  const order = [1,2,3,4,5,6,0];
-  const completed = [true,true,false,true,false,false,false];
+  const todayStr = now.toISOString().split('T')[0];
+  const weekDates = getWeekDates();
+  const workoutDates = currentUser?.stats?.workoutDates || [];
   grid.innerHTML = '';
-  order.forEach((d,i) => {
+  weekDates.forEach((dateStr, i) => {
+    const isToday = dateStr === todayStr;
+    const isDone = workoutDates.includes(dateStr);
     grid.innerHTML += `
-      <div class="week-day ${d===todayIdx?'today':''} ${completed[i]?'completed':''}">
-        <div class="day-name">${dayShort[d]}</div>
+      <div class="week-day ${isToday?'today':''} ${isDone?'completed':''}">
+        <div class="day-name">${dayShort[i]}</div>
         <div class="day-dot"></div>
+      </div>`;
+  });
+}
+
+function renderPlan() {
+  const list = document.getElementById('planList');
+  if (!list) return;
+  const dayNames = ['Po','Út','St','Čt','Pá','So','Ne'];
+  const planPrograms = ['Silový trénink','Kardio','Silový trénink','HIIT','Strečink','Trénink nohou','Odpočinek'];
+  const planMeta = ['4 cvičení · 25 min','6 cvičení · 20 min','4 cvičení · 25 min','5 cvičení · 30 min','5 cvičení · 15 min','5 cvičení · 25 min','Regenerace'];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const weekDates = getWeekDates();
+  const workoutDates = currentUser?.stats?.workoutDates || [];
+  list.innerHTML = '';
+  weekDates.forEach((dateStr, i) => {
+    const isToday = dateStr === todayStr;
+    const isDone = workoutDates.includes(dateStr);
+    const isFuture = dateStr > todayStr;
+    let statusClass = '', statusText = 'Neplánováno';
+    if (isDone) { statusClass = 'done'; statusText = 'Hotovo ✓'; }
+    else if (isToday) { statusClass = 'active-status'; statusText = 'Dnes'; }
+    else if (isFuture) { statusClass = ''; statusText = 'Plánováno'; }
+    list.innerHTML += `
+      <div class="plan-card ${isToday?'today-plan':''}">
+        <div class="plan-day-badge ${isToday?'active':''}">${dayNames[i]}</div>
+        <div class="plan-card-info">
+          <div class="plan-card-name">${planPrograms[i]}</div>
+          <div class="plan-card-meta">${planMeta[i]}</div>
+        </div>
+        <div class="plan-card-status ${statusClass}">${statusText}</div>
       </div>`;
   });
 }
@@ -1111,13 +1166,7 @@ tryAutoLogin();
   <div class="page" id="page-plan">
     <div class="plan-page">
       <div class="page-title">TÝDENNÍ PLÁN</div>
-      <div class="plan-card"><div class="plan-day-badge">PO</div><div class="plan-card-info"><div class="plan-card-name">Silový trénink</div><div class="plan-card-meta">4 cvičení · 25 min</div></div><div class="plan-card-status done">Hotovo</div></div>
-      <div class="plan-card"><div class="plan-day-badge">ÚT</div><div class="plan-card-info"><div class="plan-card-name">Kardio</div><div class="plan-card-meta">6 cvičení · 20 min</div></div><div class="plan-card-status done">Hotovo</div></div>
-      <div class="plan-card today-plan"><div class="plan-day-badge active">ST</div><div class="plan-card-info"><div class="plan-card-name">Silový trénink</div><div class="plan-card-meta">4 cvičení · 25 min</div></div><div class="plan-card-status active-status">Dnes</div></div>
-      <div class="plan-card"><div class="plan-day-badge">ČT</div><div class="plan-card-info"><div class="plan-card-name">HIIT</div><div class="plan-card-meta">5 cvičení · 30 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">PÁ</div><div class="plan-card-info"><div class="plan-card-name">Strečink</div><div class="plan-card-meta">5 cvičení · 15 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">SO</div><div class="plan-card-info"><div class="plan-card-name">Trénink nohou</div><div class="plan-card-meta">5 cvičení · 25 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">NE</div><div class="plan-card-info"><div class="plan-card-name">Odpočinek</div><div class="plan-card-meta">Regenerace</div></div><div class="plan-card-status">Volno</div></div>
+      <div id="planList"></div>
     </div>
   </div>
 
