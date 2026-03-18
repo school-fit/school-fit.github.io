@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCHOOL FIT</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, increment, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ═══════════════════════════════════════════
+// FIREBASE CONFIG — vyplň svými hodnotami
+// ═══════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "TVUJ_API_KEY",
+  authDomain: "TVUJ_PROJECT.firebaseapp.com",
+  projectId: "TVUJ_PROJECT_ID",
+  storageBucket: "TVUJ_PROJECT.appspot.com",
+  messagingSenderId: "TVUJ_SENDER_ID",
+  appId: "TVUJ_APP_ID"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let currentUser = null; // { uid, nickname, displayName, shareStats }
+let completedExercises = new Set();
+let currentProgram = 0;
+let timerInterval = null, timerSeconds = 0, timerMax = 30, isRunning = false;
+let timerQueue = [], timerQueueIndex = 0;
+
+// hash PIN
+async function hashPin(pin) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin + "schoolfit_salt"));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ═══════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════
+window.registerUser = async function() {
+  const nick = document.getElementById('regNick').value.trim().toLowerCase();
+  const displayName = document.getElementById('regName').value.trim();
+  const pin = document.getElementById('regPin').value.trim();
+  const pin2 = document.getElementById('regPin2').value.trim();
+  const err = document.getElementById('regError');
+
+  if (!nick || !displayName || !pin) { err.textContent = 'Vyplň všechna pole.'; return; }
+  if (!/^[a-z0-9_]{3,20}$/.test(nick)) { err.textContent = 'Přezdívka: 3–20 znaků, jen písmena/číslice/_'; return; }
+  if (!/^\d{4}$/.test(pin)) { err.textContent = 'PIN musí mít přesně 4 číslice.'; return; }
+  if (pin !== pin2) { err.textContent = 'PINy se neshodují.'; return; }
+
+  err.textContent = '';
+  setLoading('regBtn', true);
+
+  try {
+    const userRef = doc(db, "users", nick);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) { err.textContent = 'Tato přezdívka je již obsazena.'; setLoading('regBtn', false); return; }
+
+    const pinHash = await hashPin(pin);
+    await setDoc(userRef, {
+      nickname: nick,
+      displayName,
+      pinHash,
+      shareStats: true,
+      createdAt: serverTimestamp(),
+      stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null }
+    });
+
+    showToast('Účet vytvořen! Přihlašuješ se...');
+    setTimeout(() => loginUser(nick, pin), 800);
+  } catch(e) {
+    err.textContent = 'Chyba: ' + e.message;
+    setLoading('regBtn', false);
+  }
+};
+
+window.loginUser = async function(nickOverride, pinOverride) {
+  const nick = (nickOverride || document.getElementById('loginNick').value.trim()).toLowerCase();
+  const pin = pinOverride || document.getElementById('loginPin').value.trim();
+  const err = document.getElementById('loginError');
+
+  if (!nick || !pin) { err.textContent = 'Vyplň přezdívku a PIN.'; return; }
+  err.textContent = '';
+  setLoading('loginBtn', true);
+
+  try {
+    const snap = await getDoc(doc(db, "users", nick));
+    if (!snap.exists()) { err.textContent = 'Přezdívka nenalezena.'; setLoading('loginBtn', false); return; }
+
+    const data = snap.data();
+    const pinHash = await hashPin(pin);
+    if (pinHash !== data.pinHash) { err.textContent = 'Špatný PIN.'; setLoading('loginBtn', false); return; }
+
+    currentUser = { uid: nick, ...data };
+    localStorage.setItem('schoolfit_user', nick);
+    setLoading('loginBtn', false);
+    showApp();
+  } catch(e) {
+    err.textContent = 'Chyba: ' + e.message;
+    setLoading('loginBtn', false);
+  }
+};
+
+window.logoutUser = function() {
+  currentUser = null;
+  localStorage.removeItem('schoolfit_user');
+  completedExercises.clear();
+  isRunning = false;
+  clearInterval(timerInterval);
+  showAuthScreen('login');
+};
+
+// Auto-login attempt
+async function tryAutoLogin() {
+  const saved = localStorage.getItem('schoolfit_user');
+  if (!saved) return;
+  try {
+    const snap = await getDoc(doc(db, "users", saved));
+    if (snap.exists()) {
+      currentUser = { uid: saved, ...snap.data() };
+      showApp();
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════
+// SETTINGS — share toggle, save stats
+// ═══════════════════════════════════════════
+window.toggleShare = async function() {
+  if (!currentUser) return;
+  currentUser.shareStats = !currentUser.shareStats;
+  document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
+  await updateDoc(doc(db, "users", currentUser.uid), { shareStats: currentUser.shareStats });
+  showToast(currentUser.shareStats ? 'Statistiky jsou nyní veřejné.' : 'Statistiky jsou nyní skryté.');
+};
+
+async function saveWorkoutStats(durationMin, kcal) {
+  if (!currentUser) return;
+  const today = new Date().toISOString().split('T')[0];
+  const last = currentUser.stats?.lastWorkout;
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const newStreak = (last === yesterday || last === today)
+    ? (currentUser.stats.streak || 0) + 1
+    : 1;
+
+  await updateDoc(doc(db, "users", currentUser.uid), {
+    "stats.totalWorkouts": increment(1),
+    "stats.totalMinutes": increment(durationMin),
+    "stats.totalKcal": increment(kcal),
+    "stats.streak": newStreak,
+    "stats.lastWorkout": today
+  });
+  currentUser.stats.totalWorkouts = (currentUser.stats.totalWorkouts || 0) + 1;
+  currentUser.stats.totalMinutes = (currentUser.stats.totalMinutes || 0) + durationMin;
+  currentUser.stats.totalKcal = (currentUser.stats.totalKcal || 0) + kcal;
+  currentUser.stats.streak = newStreak;
+  updateProfileStats();
+}
+
+// ═══════════════════════════════════════════
+// LEADERBOARD
+// ═══════════════════════════════════════════
+async function loadLeaderboard() {
+  const board = document.getElementById('leaderboardList');
+  board.innerHTML = '<div style="color:var(--muted);text-align:center;padding:2rem;font-size:0.85rem;letter-spacing:2px">NAČÍTÁM...</div>';
+  try {
+    const snap = await getDocs(collection(db, "users"));
+    const users = [];
+    snap.forEach(d => {
+      const u = d.data();
+      if (u.shareStats) users.push(u);
+    });
+    users.sort((a,b) => (b.stats?.totalWorkouts||0) - (a.stats?.totalWorkouts||0));
+
+    if (users.length === 0) {
+      board.innerHTML = '<div style="color:var(--muted);text-align:center;padding:2rem">Zatím nikdo nesdílí statistiky.</div>';
+      return;
+    }
+
+    board.innerHTML = '';
+    users.forEach((u, i) => {
+      const isMe = u.nickname === currentUser?.uid;
+      const w = u.stats?.totalWorkouts || 0;
+      const kcal = u.stats?.totalKcal || 0;
+      const streak = u.stats?.streak || 0;
+      const comment = getFunComment(i, w, streak, u.displayName);
+      board.innerHTML += `
+        <div class="lb-row ${isMe ? 'lb-me' : ''}">
+          <div class="lb-rank">${['🥇','🥈','🥉'][i] || '#'+(i+1)}</div>
+          <div class="lb-info">
+            <div class="lb-name">${u.displayName} ${isMe ? '<span class="lb-you">TY</span>' : ''}</div>
+            <div class="lb-comment">${comment}</div>
+          </div>
+          <div class="lb-stats">
+            <div class="lb-stat-num">${w}</div>
+            <div class="lb-stat-label">tréninků</div>
+            <div class="lb-stat-kcal">${kcal} kcal</div>
+          </div>
+        </div>`;
+    });
+
+    // private users note
+    const total = snap.size;
+    const private_ = total - users.length;
+    if (private_ > 0) {
+      board.innerHTML += `<div style="color:var(--muted);font-size:0.7rem;text-align:center;padding:1rem;letter-spacing:1px">${private_} kolega/ů se stydí a skrývá statistiky 🙈</div>`;
+    }
+  } catch(e) {
+    board.innerHTML = '<div style="color:var(--accent2);text-align:center;padding:2rem">Chyba načítání: ' + e.message + '</div>';
+  }
+}
+
+function getFunComment(rank, workouts, streak, name) {
+  if (workouts === 0) return "Zatím jen kouká na ostatní z gauče. 🛋️";
+  if (rank === 0) {
+    const tops = ["Absolutní legenda tělocvičny! Snad aspoň jednou otevřel okno. 🏆", "Číslo jedna! Zbytek sboru ho lituje a obdivuje zároveň.", "Ten člověk cvičí víc než mluví na poradách. Úžasné."];
+    return tops[Math.floor(Math.random()*tops.length)];
+  }
+  if (streak >= 7) return `${streak} dní v řadě! Asi mu doma řekli ať jde ven. 🔥`;
+  if (streak >= 3) return `${streak} dny streak – ještě pár dní a bude mít vlastní dokumentární film. 💪`;
+  if (workouts >= 20) return "Veterán školní fitky. Záda ho bolí, ale statistiky ne.";
+  if (workouts >= 10) return "Dvouciferný výkon! Někde se fláká, ale aspoň se fláká fitně.";
+  if (workouts >= 5) return "Rozjíždí se. Pomalu, ale jistě. Jako ethernet v roce 2005.";
+  return "Začátečník s velkými sny a malými svaly. Zatím. 💡";
+}
+
+// ═══════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════
+function showAuthScreen(which) {
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('loginForm').style.display = which === 'login' ? 'block' : 'none';
+  document.getElementById('registerForm').style.display = which === 'register' ? 'block' : 'none';
+}
+
+function showApp() {
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'block';
+  document.getElementById('userGreet').textContent = currentUser.displayName;
+
+  const days = ['Neděle','Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota'];
+  const months = ['ledna','února','března','dubna','května','června','července','srpna','září','října','listopadu','prosince'];
+  const now = new Date();
+  document.getElementById('todayLabel').textContent = `${days[now.getDay()]} · ${now.getDate()}. ${months[now.getMonth()]}`;
+
+  updateProfileStats();
+  document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
+  renderExercises();
+  renderWeek();
+  switchPage('dnes', document.querySelector('.nav-item'));
+}
+
+function updateProfileStats() {
+  const s = currentUser.stats || {};
+  document.getElementById('statCalories').textContent = s.totalKcal || 0;
+  document.getElementById('statMin').textContent = s.totalMinutes || 0;
+  document.getElementById('statDone').textContent = s.totalWorkouts || 0;
+  document.getElementById('streakNum').textContent = s.streak || 0;
+  document.getElementById('profileWorkouts').textContent = s.totalWorkouts || 0;
+  document.getElementById('profileKcal').textContent = s.totalKcal || 0;
+  document.getElementById('profileStreak').textContent = s.streak || 0;
+  document.getElementById('profileMin').textContent = s.totalMinutes || 0;
+  document.getElementById('profileNick').textContent = '@' + currentUser.uid;
+  document.getElementById('profileName').textContent = currentUser.displayName;
+}
+
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.textContent = loading ? 'MOMENT...' : btn.dataset.label;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+window.switchPage = function(pageId, navEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + pageId).classList.add('active');
+  if (navEl) navEl.classList.add('active');
+  window.scrollTo(0,0);
+  if (pageId === 'statistiky') loadLeaderboard();
+};
+
+window.showAuthScreen = showAuthScreen;
+
+// ═══════════════════════════════════════════
+// PROGRAMS & EXERCISES
+// ═══════════════════════════════════════════
+const programs = [
+  { name:"SILOVÝ TRÉNINK", meta:"25 min · 4 cvičení", kcal:120, min:25,
+    exercises:[
+      {icon:"💪",name:"Kliky",detail:"3 × 15 opakování",restSec:60,workSec:40},
+      {icon:"🦵",name:"Dřepy",detail:"3 × 20 opakování",restSec:60,workSec:50},
+      {icon:"🏋️",name:"Výpady",detail:"3 × 12 / nohu",restSec:60,workSec:45},
+      {icon:"⚡",name:"Plank",detail:"3 × 45 sekund",restSec:45,workSec:45},
+    ]},
+  { name:"KARDIO TRÉNINK", meta:"20 min · 6 cvičení", kcal:180, min:20,
+    exercises:[
+      {icon:"🏃",name:"Jumping jacks",detail:"3 × 30 opakování",restSec:30,workSec:35},
+      {icon:"🦘",name:"Burpees",detail:"3 × 10 opakování",restSec:45,workSec:40},
+      {icon:"⬆️",name:"High knees",detail:"3 × 30 sekund",restSec:30,workSec:30},
+      {icon:"🏃",name:"Mountain climbers",detail:"3 × 20 / nohu",restSec:30,workSec:35},
+      {icon:"🦵",name:"Squat jumps",detail:"3 × 15 opakování",restSec:45,workSec:30},
+      {icon:"🤸",name:"Skipping",detail:"3 × 30 sekund",restSec:30,workSec:30},
+    ]},
+  { name:"STREČINK", meta:"15 min · 5 cvičení", kcal:60, min:15,
+    exercises:[
+      {icon:"🧘",name:"Předklon",detail:"3 × 30 sekund",restSec:20,workSec:30},
+      {icon:"🦋",name:"Motýlek",detail:"2 × 45 sekund",restSec:20,workSec:45},
+      {icon:"🐱",name:"Kočka/kráva",detail:"2 × 10 opakování",restSec:20,workSec:35},
+      {icon:"🌿",name:"Pigeon pose",detail:"2 × 45 sekund / strana",restSec:20,workSec:45},
+      {icon:"🔄",name:"Rotace trupu",detail:"2 × 15 / strana",restSec:20,workSec:35},
+    ]},
+  { name:"HIIT TRÉNINK", meta:"30 min · 5 cvičení", kcal:250, min:30,
+    exercises:[
+      {icon:"🔥",name:"Sprint na místě",detail:"5 × 20 sekund",restSec:10,workSec:20},
+      {icon:"💥",name:"Explosive kliky",detail:"4 × 10 opakování",restSec:20,workSec:30},
+      {icon:"⚡",name:"Jump squats",detail:"4 × 15 opakování",restSec:20,workSec:30},
+      {icon:"🦘",name:"Burpees",detail:"4 × 8 opakování",restSec:20,workSec:35},
+      {icon:"🏃",name:"Mountain climbers",detail:"4 × 30 sekund",restSec:10,workSec:30},
+    ]},
+  { name:"TRÉNINK NOH", meta:"25 min · 5 cvičení", kcal:150, min:25,
+    exercises:[
+      {icon:"🦵",name:"Dřepy",detail:"4 × 20 opakování",restSec:60,workSec:45},
+      {icon:"🚶",name:"Výpady chůzí",detail:"3 × 12 / nohu",restSec:60,workSec:40},
+      {icon:"🔄",name:"Rumunský mrtvý tah",detail:"3 × 15 opakování",restSec:60,workSec:45},
+      {icon:"🦘",name:"Box jumps",detail:"3 × 10 opakování",restSec:45,workSec:35},
+      {icon:"⬆️",name:"Výpony na lýtka",detail:"3 × 25 opakování",restSec:45,workSec:30},
+    ]},
+];
+
+window.selectProgram = function(card, idx) {
+  document.querySelectorAll('.program-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+  currentProgram = idx;
+  completedExercises.clear();
+  const p = programs[idx];
+  document.getElementById('workoutTitle').textContent = p.name;
+  document.getElementById('workoutMeta').textContent = p.meta;
+  document.getElementById('startBtn').textContent = 'ZAČÍT TRÉNINK';
+  document.getElementById('startBtn').classList.remove('running');
+  isRunning = false;
+  renderExercises();
+};
+
+function renderExercises() {
+  const prog = programs[currentProgram];
+  const list = document.getElementById('exerciseList');
+  list.innerHTML = '';
+  prog.exercises.forEach((ex, i) => {
+    const done = completedExercises.has(i);
+    list.innerHTML += `
+      <div class="exercise-item ${done?'done':''}" onclick="toggleExercise(${i})">
+        <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
+        <div class="exercise-icon">${ex.icon}</div>
+        <div class="exercise-info">
+          <div class="exercise-name">${ex.name}</div>
+          <div class="exercise-detail">${ex.detail}</div>
+        </div>
+        <div class="exercise-check">${done?'✓':''}</div>
+      </div>`;
+  });
+  updateProgress();
+}
+
+window.toggleExercise = function(i) {
+  if (completedExercises.has(i)) completedExercises.delete(i);
+  else completedExercises.add(i);
+  renderExercises();
+  checkAllDone();
+};
+
+function updateProgress() {
+  const total = programs[currentProgram].exercises.length;
+  const done = completedExercises.size;
+  document.getElementById('progressFill').style.width = (total>0?(done/total)*100:0)+'%';
+  document.getElementById('progressLabel').textContent = `${done} / ${total}`;
+}
+
+async function checkAllDone() {
+  const total = programs[currentProgram].exercises.length;
+  if (completedExercises.size === total && total > 0) {
+    const prog = programs[currentProgram];
+    showToast('🏆 TRÉNINK DOKONČEN!');
+    await saveWorkoutStats(prog.min, prog.kcal);
+  }
+}
+
+// ═══════════════════════════════════════════
+// TIMER
+// ═══════════════════════════════════════════
+function buildTimerQueue() {
+  return programs[currentProgram].exercises.flatMap(ex => [
+    {type:'work', sec:ex.workSec, name:ex.name.toUpperCase()},
+    {type:'rest', sec:ex.restSec, name:'ODPOČINEK'},
+  ]);
+}
+
+window.startWorkout = function() {
+  if (isRunning) { closeTimer(); return; }
+  isRunning = true;
+  document.getElementById('startBtn').textContent = 'ZASTAVIT';
+  document.getElementById('startBtn').classList.add('running');
+  timerQueue = buildTimerQueue();
+  timerQueueIndex = 0;
+  startTimerPhase();
+  document.getElementById('timerOverlay').classList.add('active');
+};
+
+function startTimerPhase() {
+  if (timerQueueIndex >= timerQueue.length) { closeTimer(); checkAllDone(); return; }
+  const phase = timerQueue[timerQueueIndex];
+  timerSeconds = timerMax = phase.sec;
+  document.getElementById('timerExerciseName').textContent = phase.name;
+  document.getElementById('timerPhaseLabel').textContent = phase.type==='work'?'PRACOVNÍ FÁZE':'ODPOČINEK';
+  document.getElementById('timerCount').className = 'timer-count'+(phase.type==='rest'?' rest':'');
+  updateTimerUI();
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    timerSeconds--;
+    if (timerSeconds <= 0) {
+      clearInterval(timerInterval);
+      if (timerQueue[timerQueueIndex].type === 'work') {
+        completedExercises.add(Math.floor(timerQueueIndex/2));
+        renderExercises();
+      }
+      timerQueueIndex++;
+      startTimerPhase();
+    } else updateTimerUI();
+  }, 1000);
+}
+
+function updateTimerUI() {
+  document.getElementById('timerCount').textContent = timerSeconds;
+  const c = 2*Math.PI*100;
+  document.getElementById('timerCircle').style.strokeDashoffset = c*(1-timerSeconds/timerMax);
+}
+
+window.skipTimer = function() {
+  clearInterval(timerInterval);
+  if (timerQueue[timerQueueIndex]?.type === 'work') {
+    completedExercises.add(Math.floor(timerQueueIndex/2));
+    renderExercises();
+  }
+  timerQueueIndex++;
+  startTimerPhase();
+};
+
+window.closeTimer = function() {
+  clearInterval(timerInterval);
+  document.getElementById('timerOverlay').classList.remove('active');
+  isRunning = false;
+  document.getElementById('startBtn').textContent = 'ZAČÍT TRÉNINK';
+  document.getElementById('startBtn').classList.remove('running');
+};
+
+// ═══════════════════════════════════════════
+// WEEK GRID
+// ═══════════════════════════════════════════
+function renderWeek() {
+  const grid = document.getElementById('weekGrid');
+  const dayShort = ['Ne','Po','Út','St','Čt','Pá','So'];
+  const now = new Date();
+  const todayIdx = now.getDay();
+  const order = [1,2,3,4,5,6,0];
+  const completed = [true,true,false,true,false,false,false];
+  grid.innerHTML = '';
+  order.forEach((d,i) => {
+    grid.innerHTML += `
+      <div class="week-day ${d===todayIdx?'today':''} ${completed[i]?'completed':''}">
+        <div class="day-name">${dayShort[d]}</div>
+        <div class="day-dot"></div>
+      </div>`;
+  });
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+tryAutoLogin();
+</script>
+
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --surface2: #1a1a1a;
+    --accent: #e8ff3a;
+    --accent2: #ff4d4d;
+    --text: #f0f0f0;
+    --muted: #555;
+    --border: #222;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events:none; z-index:1000; opacity:0.5;
+  }
+
+  /* ── AUTH SCREEN ── */
+  #authScreen {
+    display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:2rem;
+    background: radial-gradient(ellipse at 30% 20%, #1a1e00 0%, var(--bg) 60%);
+  }
+
+  .auth-box {
+    width:100%; max-width:380px;
+  }
+
+  .auth-logo {
+    font-family:'Bebas Neue',sans-serif;
+    font-size:3.5rem; letter-spacing:6px;
+    text-align:center; margin-bottom:0.3rem;
+    color: var(--text);
+  }
+  .auth-logo span { color:var(--accent); }
+
+  .auth-tagline {
+    text-align:center;
+    font-size:0.7rem; letter-spacing:3px; text-transform:uppercase;
+    color:var(--muted); margin-bottom:2.5rem;
+  }
+
+  .auth-card {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:20px;
+    padding:2rem;
+  }
+
+  .auth-title {
+    font-family:'Bebas Neue',sans-serif;
+    font-size:1.4rem; letter-spacing:4px;
+    margin-bottom:1.5rem;
+  }
+
+  .form-group { margin-bottom:1rem; }
+  .form-label {
+    display:block;
+    font-size:0.65rem; letter-spacing:2px; text-transform:uppercase;
+    color:var(--muted); margin-bottom:6px;
+  }
+  .form-input {
+    width:100%; background:var(--surface2);
+    border:1px solid var(--border); border-radius:10px;
+    padding:12px 14px; color:var(--text);
+    font-family:'DM Sans',sans-serif; font-size:0.95rem;
+    transition:border-color 0.2s; outline:none;
+  }
+  .form-input:focus { border-color:var(--accent); }
+  .form-input[type=number] { -moz-appearance:textfield; }
+  .form-input[type=number]::-webkit-outer-spin-button,
+  .form-input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; }
+
+  .pin-row { display:flex; gap:8px; }
+  .pin-dot {
+    flex:1; height:52px;
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; display:flex; align-items:center; justify-content:center;
+    font-size:1.5rem; letter-spacing:0; transition:border-color 0.2s;
+  }
+  .pin-dot.filled { border-color:var(--accent); color:var(--accent); }
+
+  .auth-btn {
+    width:100%; padding:14px;
+    background:var(--accent); color:#000;
+    border:none; border-radius:12px;
+    font-family:'Bebas Neue',sans-serif;
+    font-size:1.2rem; letter-spacing:4px;
+    cursor:pointer; margin-top:0.5rem;
+    transition:all 0.2s;
+  }
+  .auth-btn:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(232,255,58,0.25); }
+  .auth-btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+
+  .auth-switch {
+    text-align:center; margin-top:1.2rem;
+    font-size:0.8rem; color:var(--muted);
+  }
+  .auth-switch a {
+    color:var(--accent); text-decoration:none; font-weight:600;
+    cursor:pointer;
+  }
+
+  .form-error {
+    color:var(--accent2); font-size:0.78rem;
+    margin-top:0.8rem; min-height:1.2em;
+    letter-spacing:0.5px;
+  }
+
+  /* ── APP SCREEN ── */
+  #appScreen { display:none; }
+
+  /* HEADER */
+  header {
+    position:sticky; top:0; z-index:100;
+    background:rgba(10,10,10,0.9); backdrop-filter:blur(20px);
+    border-bottom:1px solid var(--border);
+    padding:0 1.5rem; height:58px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .logo { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:4px; color:var(--accent); }
+  .logo span { color:var(--text); }
+  .header-right { display:flex; align-items:center; gap:10px; }
+  .streak-badge {
+    display:flex; align-items:center; gap:6px;
+    background:var(--surface2); border:1px solid var(--border);
+    padding:5px 12px; border-radius:100px;
+    font-size:0.75rem; font-weight:600;
+  }
+  .streak-count { color:var(--accent); }
+  .user-avatar {
+    width:32px; height:32px;
+    background:var(--accent); color:#000;
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Bebas Neue',sans-serif; font-size:1rem;
+    cursor:pointer; flex-shrink:0;
+  }
+
+  /* PAGES */
+  .page { display:none; padding-bottom:80px; }
+  .page.active { display:block; }
+
+  /* HERO */
+  .hero { position:relative; padding:2.5rem 1.5rem 1.5rem; overflow:hidden; }
+  .hero-bg-text {
+    position:absolute; top:-1rem; left:-0.5rem;
+    font-family:'Bebas Neue',sans-serif; font-size:11rem;
+    color:rgba(232,255,58,0.03); letter-spacing:-4px; line-height:1;
+    user-select:none; pointer-events:none;
+  }
+  .hero-content { position:relative; }
+  .day-label { font-size:0.65rem; letter-spacing:4px; text-transform:uppercase; color:var(--muted); margin-bottom:0.4rem; }
+  .hero-title { font-family:'Bebas Neue',sans-serif; font-size:3.5rem; line-height:0.95; letter-spacing:2px; margin-bottom:0.6rem; }
+  .hero-title .highlight { color:var(--accent); }
+  .hero-user { font-size:0.85rem; color:var(--muted); }
+  .hero-user strong { color:var(--text); }
+
+  /* STATS ROW */
+  .stats-row {
+    display:grid; grid-template-columns:repeat(3,1fr);
+    gap:1px; background:var(--border);
+    margin:0 1.5rem 1.5rem;
+    border:1px solid var(--border); border-radius:12px; overflow:hidden;
+  }
+  .stat-item { background:var(--surface); padding:1rem; text-align:center; }
+  .stat-num { font-family:'Bebas Neue',sans-serif; font-size:2.2rem; color:var(--accent); line-height:1; }
+  .stat-label { font-size:0.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-top:3px; }
+
+  /* SECTION HEADER */
+  .section-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 1.5rem; margin-bottom:0.8rem;
+  }
+  .section-title { font-family:'Bebas Neue',sans-serif; font-size:1.3rem; letter-spacing:3px; }
+
+  /* PROGRAMS */
+  .programs-scroll { display:flex; gap:0.8rem; padding:0 1.5rem 1.2rem; overflow-x:auto; scrollbar-width:none; }
+  .programs-scroll::-webkit-scrollbar { display:none; }
+  .program-card {
+    flex:0 0 180px; background:var(--surface);
+    border:1px solid var(--border); border-radius:14px;
+    padding:1.2rem; cursor:pointer; transition:all 0.2s;
+    position:relative; overflow:hidden;
+  }
+  .program-card:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .program-card.active { border-color:var(--accent); background:#1a1e00; }
+  .program-card.active::after {
+    content:'✓'; position:absolute; top:10px; right:10px;
+    width:18px; height:18px; background:var(--accent); color:#000;
+    border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:0.65rem; font-weight:700;
+  }
+  .program-icon { font-size:1.8rem; margin-bottom:0.6rem; display:block; }
+  .program-name { font-family:'Bebas Neue',sans-serif; font-size:1rem; letter-spacing:2px; margin-bottom:3px; }
+  .program-meta { font-size:0.68rem; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+  .program-difficulty { display:flex; gap:3px; margin-top:8px; }
+  .dot { width:5px; height:5px; border-radius:50%; background:var(--border); }
+  .dot.filled { background:var(--accent); }
+  .dot.red { background:var(--accent2); }
+
+  /* WORKOUT CARD */
+  .workout-section { padding:0 1.5rem 1.5rem; }
+  .workout-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+  .workout-header { background:var(--accent); padding:1rem 1.4rem; display:flex; align-items:center; justify-content:space-between; }
+  .workout-header-title { font-family:'Bebas Neue',sans-serif; font-size:1.4rem; letter-spacing:3px; color:#000; }
+  .workout-header-meta { font-size:0.72rem; font-weight:600; color:rgba(0,0,0,0.55); text-transform:uppercase; letter-spacing:1px; }
+  .exercise-list { padding:0.8rem; }
+  .exercise-item {
+    display:flex; align-items:center; gap:0.8rem;
+    padding:0.8rem; border-radius:10px; margin-bottom:4px;
+    cursor:pointer; transition:all 0.2s; border:1px solid transparent;
+  }
+  .exercise-item:hover { background:var(--surface2); border-color:var(--border); }
+  .exercise-item.done { opacity:0.4; }
+  .exercise-item.done .exercise-name { text-decoration:line-through; }
+  .exercise-num { font-family:'Bebas Neue',sans-serif; font-size:1.1rem; color:var(--muted); width:22px; text-align:center; flex-shrink:0; }
+  .exercise-icon { font-size:1.3rem; flex-shrink:0; }
+  .exercise-info { flex:1; }
+  .exercise-name { font-weight:600; font-size:0.88rem; margin-bottom:2px; }
+  .exercise-detail { font-size:0.7rem; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+  .exercise-check {
+    width:26px; height:26px; border:2px solid var(--border);
+    border-radius:7px; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; transition:all 0.2s; font-size:0.75rem;
+  }
+  .exercise-item.done .exercise-check { background:var(--accent); border-color:var(--accent); color:#000; }
+  .progress-bar-wrap {
+    padding:0.9rem 1.4rem; border-top:1px solid var(--border);
+    display:flex; align-items:center; gap:1rem;
+  }
+  .progress-bar { flex:1; height:3px; background:var(--surface2); border-radius:4px; overflow:hidden; }
+  .progress-fill { height:100%; background:var(--accent); border-radius:4px; transition:width 0.4s cubic-bezier(0.4,0,0.2,1); }
+  .progress-label { font-size:0.7rem; color:var(--muted); letter-spacing:1px; white-space:nowrap; min-width:50px; text-align:right; }
+
+  /* START BTN */
+  .start-btn {
+    display:block; width:calc(100% - 3rem); margin:0 1.5rem 1.5rem;
+    padding:1rem; background:var(--accent); color:#000;
+    border:none; border-radius:12px;
+    font-family:'Bebas Neue',sans-serif; font-size:1.2rem; letter-spacing:4px;
+    cursor:pointer; transition:all 0.2s;
+  }
+  .start-btn:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(232,255,58,0.25); }
+  .start-btn.running { background:var(--surface2); color:var(--accent); border:2px solid var(--accent); animation:pulse-ring 1.5s infinite; }
+
+  /* WEEK */
+  .week-section { padding:0 1.5rem 1.5rem; }
+  .week-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
+  .week-day {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:0.5rem 0.2rem; text-align:center;
+    font-size:0.6rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted);
+  }
+  .week-day.today { border-color:var(--accent); color:var(--accent); }
+  .week-day.completed { background:#1a1e00; border-color:var(--accent); }
+  .week-day .day-name { margin-bottom:4px; font-weight:600; }
+  .week-day .day-dot { width:5px; height:5px; border-radius:50%; background:var(--border); margin:0 auto; }
+  .week-day.completed .day-dot, .week-day.today .day-dot { background:var(--accent); }
+
+  /* LEADERBOARD PAGE */
+  .stats-page, .plan-page, .settings-page, .profile-page {
+    padding:1.5rem;
+  }
+  .page-title {
+    font-family:'Bebas Neue',sans-serif; font-size:2.2rem; letter-spacing:4px; margin-bottom:1.5rem;
+  }
+
+  .lb-row {
+    display:flex; align-items:center; gap:1rem;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; padding:1rem 1.2rem; margin-bottom:0.6rem;
+    transition:all 0.2s;
+  }
+  .lb-row.lb-me { border-color:var(--accent); background:#1a1e00; }
+  .lb-rank { font-size:1.4rem; flex-shrink:0; width:32px; text-align:center; }
+  .lb-info { flex:1; min-width:0; }
+  .lb-name { font-weight:600; font-size:0.9rem; display:flex; align-items:center; gap:6px; }
+  .lb-you {
+    font-size:0.6rem; letter-spacing:2px; padding:2px 7px;
+    background:var(--accent); color:#000; border-radius:100px;
+    font-family:'Bebas Neue',sans-serif;
+  }
+  .lb-comment { font-size:0.75rem; color:var(--muted); margin-top:3px; line-height:1.4; }
+  .lb-stats { text-align:right; flex-shrink:0; }
+  .lb-stat-num { font-family:'Bebas Neue',sans-serif; font-size:1.8rem; color:var(--accent); line-height:1; }
+  .lb-stat-label { font-size:0.6rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted); }
+  .lb-stat-kcal { font-size:0.72rem; color:var(--muted); margin-top:2px; }
+
+  /* PLAN PAGE */
+  .plan-card {
+    display:flex; align-items:center; gap:1rem;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:1rem 1.2rem; margin-bottom:0.6rem;
+    cursor:pointer; transition:all 0.2s;
+  }
+  .plan-card:hover { border-color:var(--muted); }
+  .plan-card.today-plan { border-color:var(--accent); background:#1a1e00; }
+  .plan-day-badge { font-family:'Bebas Neue',sans-serif; font-size:0.85rem; letter-spacing:2px; color:var(--muted); min-width:24px; }
+  .plan-day-badge.active { color:var(--accent); }
+  .plan-card-info { flex:1; }
+  .plan-card-name { font-weight:600; font-size:0.88rem; margin-bottom:2px; }
+  .plan-card-meta { font-size:0.68rem; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+  .plan-card-status {
+    font-size:0.65rem; letter-spacing:1px; text-transform:uppercase;
+    padding:3px 9px; border-radius:100px; border:1px solid var(--border); color:var(--muted);
+  }
+  .plan-card-status.done { background:#1a1e00; border-color:var(--accent); color:var(--accent); }
+  .plan-card-status.active-status { background:var(--accent); color:#000; border-color:var(--accent); }
+
+  /* PROFILE PAGE */
+  .profile-header {
+    display:flex; align-items:center; gap:1.2rem; margin-bottom:1.5rem;
+  }
+  .profile-avatar {
+    width:60px; height:60px; background:var(--accent); color:#000;
+    border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:'Bebas Neue',sans-serif; font-size:2rem; flex-shrink:0;
+  }
+  .profile-name { font-family:'Bebas Neue',sans-serif; font-size:1.6rem; letter-spacing:2px; }
+  .profile-nick { font-size:0.75rem; color:var(--muted); letter-spacing:1px; margin-top:2px; }
+
+  .profile-stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin-bottom:1.5rem; }
+  .profile-stat-card {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.2rem;
+  }
+  .profile-stat-card.accent { border-color:var(--accent); background:#1a1e00; }
+  .profile-stat-num { font-family:'Bebas Neue',sans-serif; font-size:2.5rem; color:var(--accent); line-height:1; }
+  .profile-stat-label { font-size:0.65rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-top:4px; }
+
+  /* SETTINGS */
+  .settings-section-label {
+    font-size:0.62rem; letter-spacing:3px; text-transform:uppercase;
+    color:var(--muted); margin-bottom:0.5rem; margin-top:1.2rem;
+  }
+  .settings-row { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:0.4rem; }
+  .settings-item {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0.9rem 1.1rem; border-bottom:1px solid var(--border);
+    cursor:pointer; transition:background 0.15s;
+  }
+  .settings-item:last-child { border-bottom:none; }
+  .settings-item:hover { background:var(--surface2); }
+  .settings-item-label { font-size:0.88rem; }
+  .settings-item-value { font-size:0.78rem; color:var(--muted); }
+  .toggle {
+    width:40px; height:22px; background:var(--border);
+    border-radius:11px; position:relative; transition:background 0.2s; cursor:pointer; flex-shrink:0;
+  }
+  .toggle.on { background:var(--accent); }
+  .toggle::after {
+    content:''; position:absolute;
+    width:16px; height:16px; background:#fff;
+    border-radius:50%; top:3px; left:3px; transition:transform 0.2s;
+  }
+  .toggle.on::after { transform:translateX(18px); }
+
+  /* TIMER */
+  .timer-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.96);
+    z-index:500; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:1.5rem;
+    opacity:0; pointer-events:none; transition:opacity 0.3s;
+  }
+  .timer-overlay.active { opacity:1; pointer-events:all; }
+  .timer-exercise-name { font-size:0.75rem; letter-spacing:4px; text-transform:uppercase; color:var(--muted); }
+  .timer-circle { width:200px; height:200px; position:relative; display:flex; align-items:center; justify-content:center; }
+  .timer-svg { position:absolute; inset:0; transform:rotate(-90deg); }
+  .timer-bg-circle { fill:none; stroke:var(--surface2); stroke-width:6; }
+  .timer-progress-circle { fill:none; stroke:var(--accent); stroke-width:6; stroke-linecap:round; transition:stroke-dashoffset 0.5s linear; }
+  .timer-count { font-family:'Bebas Neue',sans-serif; font-size:5rem; line-height:1; }
+  .timer-count.rest { color:var(--accent2); }
+  .timer-label { font-size:0.65rem; letter-spacing:3px; text-transform:uppercase; color:var(--muted); margin-top:-0.8rem; }
+  .timer-skip {
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    padding:9px 22px; border-radius:100px;
+    font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; cursor:pointer; transition:all 0.2s;
+  }
+  .timer-skip:hover { border-color:var(--text); color:var(--text); }
+  .timer-close {
+    position:absolute; top:1.5rem; right:1.5rem;
+    background:transparent; border:none; color:var(--muted);
+    font-size:1.4rem; cursor:pointer; padding:6px; line-height:1;
+  }
+
+  /* BOTTOM NAV */
+  nav {
+    position:fixed; bottom:0; left:0; right:0;
+    background:rgba(10,10,10,0.95); backdrop-filter:blur(20px);
+    border-top:1px solid var(--border);
+    padding:0.6rem 0 1rem;
+    display:flex; justify-content:space-around; z-index:90;
+  }
+  .nav-item {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    cursor:pointer; padding:5px 12px; border-radius:10px;
+    transition:all 0.2s; color:var(--muted);
+    font-size:0.58rem; letter-spacing:1px; text-transform:uppercase;
+  }
+  .nav-item:hover, .nav-item.active { color:var(--accent); }
+  .nav-item .nav-icon { width:20px; height:20px; }
+  .nav-item .nav-icon svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* TOAST */
+  #toast {
+    position:fixed; bottom:90px; left:50%;
+    transform:translateX(-50%) translateY(10px);
+    background:var(--accent); color:#000;
+    font-family:'Bebas Neue',sans-serif; font-size:1rem; letter-spacing:3px;
+    padding:9px 22px; border-radius:100px;
+    opacity:0; transition:all 0.3s; pointer-events:none;
+    white-space:nowrap; z-index:600;
+  }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes pulse-ring {
+    0%{box-shadow:0 0 0 0 rgba(232,255,58,0.4)}
+    70%{box-shadow:0 0 0 10px rgba(232,255,58,0)}
+    100%{box-shadow:0 0 0 0 rgba(232,255,58,0)}
+  }
+  .hero-content { animation:fadeUp 0.4s ease both; }
+  .stats-row { animation:fadeUp 0.4s 0.08s ease both; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ AUTH SCREEN ═══════════════ -->
+<div id="authScreen" style="display:flex">
+
+  <!-- LOGIN -->
+  <div class="auth-box">
+    <div class="auth-logo">SCHOOL<span>FIT</span></div>
+    <div class="auth-tagline">Školní fitness tracker · VOŠ&nbsp;SZSTR</div>
+
+    <div id="loginForm" class="auth-card">
+      <div class="auth-title">PŘIHLÁŠENÍ</div>
+
+      <div class="form-group">
+        <label class="form-label">Přezdívka</label>
+        <input class="form-input" id="loginNick" type="text" placeholder="tvoje_prezdivka" autocomplete="username">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">PIN (4 číslice)</label>
+        <div class="pin-row" id="loginPinRow">
+          <div class="pin-dot" id="lpd0">·</div>
+          <div class="pin-dot" id="lpd1">·</div>
+          <div class="pin-dot" id="lpd2">·</div>
+          <div class="pin-dot" id="lpd3">·</div>
+        </div>
+        <input class="form-input" id="loginPin" type="number" placeholder="····" maxlength="4"
+          style="margin-top:8px" oninput="updatePinDots('loginPin','lpd')" autocomplete="current-password">
+      </div>
+
+      <button class="auth-btn" id="loginBtn" data-label="PŘIHLÁSIT SE" onclick="loginUser()">PŘIHLÁSIT SE</button>
+      <div class="form-error" id="loginError"></div>
+      <div class="auth-switch">Nemáš účet? <a onclick="showAuthScreen('register')">Zaregistruj se</a></div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="registerForm" class="auth-card" style="display:none">
+      <div class="auth-title">NOVÝ ÚČET</div>
+
+      <div class="form-group">
+        <label class="form-label">Celé jméno</label>
+        <input class="form-input" id="regName" type="text" placeholder="Jana Nováková">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Přezdívka (unikátní, bez mezer)</label>
+        <input class="form-input" id="regNick" type="text" placeholder="jana_fit" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label class="form-label">PIN (4 číslice)</label>
+        <input class="form-input" id="regPin" type="number" placeholder="····" oninput="updatePinDots('regPin','rpd')">
+      </div>
+      <div class="form-group">
+        <label class="form-label">PIN znovu</label>
+        <input class="form-input" id="regPin2" type="number" placeholder="····">
+      </div>
+
+      <button class="auth-btn" id="regBtn" data-label="VYTVOŘIT ÚČET" onclick="registerUser()">VYTVOŘIT ÚČET</button>
+      <div class="form-error" id="regError"></div>
+      <div class="auth-switch">Máš účet? <a onclick="showAuthScreen('login')">Přihlás se</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ APP SCREEN ═══════════════ -->
+<div id="appScreen">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">SCHOOL<span>FIT</span></div>
+    <div class="header-right">
+      <div class="streak-badge">
+        🔥 <span class="streak-count" id="streakNum">0</span>
+        <span style="color:var(--muted);font-size:0.68rem">dní</span>
+      </div>
+      <div class="user-avatar" id="userAvatar" onclick="switchPage('profil',document.querySelectorAll('.nav-item')[4])">
+        ?
+      </div>
+    </div>
+  </header>
+
+  <!-- PAGE: DNES -->
+  <div class="page active" id="page-dnes">
+    <div class="hero">
+      <div class="hero-bg-text">FIT</div>
+      <div class="hero-content">
+        <div class="day-label" id="todayLabel"></div>
+        <h1 class="hero-title">DNEŠNÍ<br><span class="highlight">TRÉNINK</span></h1>
+        <p class="hero-user">Vítej zpět, <strong id="userGreet"></strong> 💪</p>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-num" id="statCalories">0</div>
+        <div class="stat-label">kcal celkem</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" id="statMin">0</div>
+        <div class="stat-label">minut celkem</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" id="statDone">0</div>
+        <div class="stat-label">tréninků</div>
+      </div>
+    </div>
+
+    <div class="section-header"><div class="section-title">Programy</div></div>
+    <div class="programs-scroll">
+      <div class="program-card active" onclick="selectProgram(this,0)">
+        <span class="program-icon">💪</span>
+        <div class="program-name">Síla</div>
+        <div class="program-meta">4 cvičení · 25 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,1)">
+        <span class="program-icon">🏃</span>
+        <div class="program-name">Kardio</div>
+        <div class="program-meta">6 cvičení · 20 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,2)">
+        <span class="program-icon">🧘</span>
+        <div class="program-name">Strečink</div>
+        <div class="program-meta">5 cvičení · 15 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,3)">
+        <span class="program-icon">🔥</span>
+        <div class="program-name">HIIT</div>
+        <div class="program-meta">5 cvičení · 30 min</div>
+        <div class="program-difficulty"><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,4)">
+        <span class="program-icon">🦵</span>
+        <div class="program-name">Nohy</div>
+        <div class="program-meta">5 cvičení · 25 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div></div>
+      </div>
+    </div>
+
+    <div class="workout-section">
+      <div class="workout-card">
+        <div class="workout-header">
+          <div class="workout-header-title" id="workoutTitle">SILOVÝ TRÉNINK</div>
+          <div class="workout-header-meta" id="workoutMeta">25 min · 4 cvičení</div>
+        </div>
+        <div class="exercise-list" id="exerciseList"></div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <div class="progress-label" id="progressLabel">0 / 4</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="start-btn" id="startBtn" onclick="startWorkout()">ZAČÍT TRÉNINK</button>
+
+    <div class="week-section">
+      <div class="section-header" style="padding:0;margin-bottom:0.8rem">
+        <div class="section-title">Tento týden</div>
+      </div>
+      <div class="week-grid" id="weekGrid"></div>
+    </div>
+  </div><!-- end page-dnes -->
+
+  <!-- PAGE: STATISTIKY (žebříček) -->
+  <div class="page" id="page-statistiky">
+    <div class="stats-page">
+      <div class="page-title">ŽEBŘÍČEK</div>
+      <div id="leaderboardList">
+        <div style="color:var(--muted);text-align:center;padding:3rem;font-size:0.85rem;letter-spacing:2px">NAČÍTÁM...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: PLÁN -->
+  <div class="page" id="page-plan">
+    <div class="plan-page">
+      <div class="page-title">TÝDENNÍ PLÁN</div>
+      <div class="plan-card"><div class="plan-day-badge">PO</div><div class="plan-card-info"><div class="plan-card-name">Silový trénink</div><div class="plan-card-meta">4 cvičení · 25 min</div></div><div class="plan-card-status done">Hotovo</div></div>
+      <div class="plan-card"><div class="plan-day-badge">ÚT</div><div class="plan-card-info"><div class="plan-card-name">Kardio</div><div class="plan-card-meta">6 cvičení · 20 min</div></div><div class="plan-card-status done">Hotovo</div></div>
+      <div class="plan-card today-plan"><div class="plan-day-badge active">ST</div><div class="plan-card-info"><div class="plan-card-name">Silový trénink</div><div class="plan-card-meta">4 cvičení · 25 min</div></div><div class="plan-card-status active-status">Dnes</div></div>
+      <div class="plan-card"><div class="plan-day-badge">ČT</div><div class="plan-card-info"><div class="plan-card-name">HIIT</div><div class="plan-card-meta">5 cvičení · 30 min</div></div><div class="plan-card-status">Plánováno</div></div>
+      <div class="plan-card"><div class="plan-day-badge">PÁ</div><div class="plan-card-info"><div class="plan-card-name">Strečink</div><div class="plan-card-meta">5 cvičení · 15 min</div></div><div class="plan-card-status">Plánováno</div></div>
+      <div class="plan-card"><div class="plan-day-badge">SO</div><div class="plan-card-info"><div class="plan-card-name">Trénink nohou</div><div class="plan-card-meta">5 cvičení · 25 min</div></div><div class="plan-card-status">Plánováno</div></div>
+      <div class="plan-card"><div class="plan-day-badge">NE</div><div class="plan-card-info"><div class="plan-card-name">Odpočinek</div><div class="plan-card-meta">Regenerace</div></div><div class="plan-card-status">Volno</div></div>
+    </div>
+  </div>
+
+  <!-- PAGE: PROFIL -->
+  <div class="page" id="page-profil">
+    <div class="profile-page">
+      <div class="page-title">PROFIL</div>
+      <div class="profile-header">
+        <div class="profile-avatar" id="profileAvatarLetter">?</div>
+        <div>
+          <div class="profile-name" id="profileName">—</div>
+          <div class="profile-nick" id="profileNick">@—</div>
+        </div>
+      </div>
+
+      <div class="profile-stats-grid">
+        <div class="profile-stat-card accent">
+          <div class="profile-stat-num" id="profileWorkouts">0</div>
+          <div class="profile-stat-label">tréninků celkem</div>
+        </div>
+        <div class="profile-stat-card">
+          <div class="profile-stat-num" id="profileStreak">0</div>
+          <div class="profile-stat-label">dní v řadě 🔥</div>
+        </div>
+        <div class="profile-stat-card">
+          <div class="profile-stat-num" id="profileKcal">0</div>
+          <div class="profile-stat-label">kcal celkem</div>
+        </div>
+        <div class="profile-stat-card">
+          <div class="profile-stat-num" id="profileMin">0</div>
+          <div class="profile-stat-label">minut trénováno</div>
+        </div>
+      </div>
+
+      <div class="settings-section-label">Soukromí</div>
+      <div class="settings-row">
+        <div class="settings-item">
+          <div>
+            <div class="settings-item-label">Sdílet statistiky v žebříčku</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-top:2px">Ostatní uvidí tvoje tréninky a kalorie</div>
+          </div>
+          <div class="toggle on" id="shareToggle" onclick="toggleShare()"></div>
+        </div>
+      </div>
+
+      <div class="settings-section-label">Nastavení</div>
+      <div class="settings-row">
+        <div class="settings-item"><span class="settings-item-label">Obtížnost</span><span class="settings-item-value">Střední ›</span></div>
+        <div class="settings-item"><span class="settings-item-label">Délka odpočinku</span><span class="settings-item-value">60 s ›</span></div>
+        <div class="settings-item"><span class="settings-item-label">Zvukové signály</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      </div>
+
+      <div class="settings-section-label">Účet</div>
+      <div class="settings-row">
+        <div class="settings-item" onclick="logoutUser()">
+          <span class="settings-item-label" style="color:var(--accent2)">Odhlásit se</span>
+          <span class="settings-item-value">›</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMER OVERLAY -->
+  <div class="timer-overlay" id="timerOverlay">
+    <button class="timer-close" onclick="closeTimer()">✕</button>
+    <div class="timer-exercise-name" id="timerExerciseName">KLIKY</div>
+    <div class="timer-circle">
+      <svg class="timer-svg" viewBox="0 0 220 220">
+        <circle class="timer-bg-circle" cx="110" cy="110" r="100"/>
+        <circle class="timer-progress-circle" id="timerCircle" cx="110" cy="110" r="100"
+          stroke-dasharray="628" stroke-dashoffset="0"/>
+      </svg>
+      <span class="timer-count" id="timerCount">30</span>
+    </div>
+    <div class="timer-label" id="timerPhaseLabel">PRACOVNÍ FÁZE</div>
+    <button class="timer-skip" onclick="skipTimer()">PŘESKOČIT ›</button>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav>
+    <div class="nav-item active" onclick="switchPage('dnes',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H5a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg></span>
+      Dnes
+    </div>
+    <div class="nav-item" onclick="switchPage('statistiky',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg></span>
+      Žebříček
+    </div>
+    <div class="nav-item" onclick="switchPage('plan',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg></span>
+      Plán
+    </div>
+    <div class="nav-item" onclick="switchPage('profil',this)">
+      <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></span>
+      Profil
+    </div>
+  </nav>
+
+</div><!-- end appScreen -->
+
+<div id="toast"></div>
+
+<script>
+// PIN dots visual feedback
+function updatePinDots(inputId, dotPrefix) {
+  const val = document.getElementById(inputId).value.toString().slice(0,4);
+  for (let i=0;i<4;i++) {
+    const d = document.getElementById(dotPrefix+i);
+    if (!d) continue;
+    d.textContent = i < val.length ? '●' : '·';
+    d.className = 'pin-dot' + (i < val.length ? ' filled' : '');
+  }
+}
+
+// Avatar letter update
+const origShowApp = window.showApp;
+// Patch avatar after login
+const patchAvatar = () => {
+  if (!window.currentUser) return;
+  const letter = (window.currentUser.displayName || '?')[0].toUpperCase();
+  const av = document.getElementById('userAvatar');
+  const pav = document.getElementById('profileAvatarLetter');
+  if (av) av.textContent = letter;
+  if (pav) pav.textContent = letter;
+};
+// MutationObserver to patch avatar when appScreen becomes visible
+new MutationObserver(() => patchAvatar()).observe(document.getElementById('appScreen'), {attributes:true, attributeFilter:['style']});
+</script>
+
+</body>
+</html>
