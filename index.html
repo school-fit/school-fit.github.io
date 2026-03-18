@@ -147,16 +147,17 @@ async function saveWorkoutStats(durationMin, kcal) {
   const today = new Date().toISOString().split('T')[0];
   const last = currentUser.stats?.lastWorkout;
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  const newStreak = (last === yesterday || last === today)
-    ? (currentUser.stats.streak || 0) + 1
-    : 1;
+  const alreadyToday = last === today;
+  const newStreak = alreadyToday
+    ? (currentUser.stats.streak || 1)
+    : (last === yesterday ? (currentUser.stats.streak || 0) + 1 : 1);
 
   // Add today to workoutDates array (avoid duplicates)
   const existingDates = currentUser.stats?.workoutDates || [];
   const updatedDates = existingDates.includes(today) ? existingDates : [...existingDates, today];
 
   await updateDoc(doc(db, "users", currentUser.uid), {
-    "stats.totalWorkouts": increment(1),
+    "stats.totalWorkouts": increment(alreadyToday ? 0 : 1),
     "stats.totalMinutes": increment(durationMin),
     "stats.totalKcal": increment(kcal),
     "stats.streak": newStreak,
@@ -164,11 +165,13 @@ async function saveWorkoutStats(durationMin, kcal) {
     "stats.workoutDates": updatedDates
   });
   currentUser.stats.workoutDates = updatedDates;
-  currentUser.stats.totalWorkouts = (currentUser.stats.totalWorkouts || 0) + 1;
+  if (!alreadyToday) currentUser.stats.totalWorkouts = (currentUser.stats.totalWorkouts || 0) + 1;
   currentUser.stats.totalMinutes = (currentUser.stats.totalMinutes || 0) + durationMin;
   currentUser.stats.totalKcal = (currentUser.stats.totalKcal || 0) + kcal;
   currentUser.stats.streak = newStreak;
   updateProfileStats();
+  renderWeek();
+  renderPlan();
 }
 
 // ═══════════════════════════════════════════
@@ -443,13 +446,17 @@ function startTimerPhase() {
     timerSeconds--;
     if (timerSeconds <= 0) {
       clearInterval(timerInterval);
+      playBeep(660, 300);
       if (timerQueue[timerQueueIndex].type === 'work') {
         completedExercises.add(Math.floor(timerQueueIndex/2));
         renderExercises();
       }
       timerQueueIndex++;
       startTimerPhase();
-    } else updateTimerUI();
+    } else {
+      if (timerSeconds <= 3) playBeep(440, 100);
+      updateTimerUI();
+    }
   }, 1000);
 }
 
@@ -542,6 +549,78 @@ function renderPlan() {
         <div class="plan-card-status ${statusClass}">${statusText}</div>
       </div>`;
   });
+}
+
+// ═══════════════════════════════════════════
+// SETTINGS FUNCTIONS
+// ═══════════════════════════════════════════
+const difficulties = ['Lehká', 'Střední', 'Těžká'];
+const restTimes = [30, 45, 60, 90, 120];
+let currentDifficulty = 1; // index into difficulties
+let currentRestIdx = 2;    // 60s default
+let soundEnabled = true;
+
+window.cycleDifficulty = function() {
+  currentDifficulty = (currentDifficulty + 1) % difficulties.length;
+  document.getElementById('settingDifficulty').textContent = difficulties[currentDifficulty] + ' ›';
+  showToast('Obtížnost: ' + difficulties[currentDifficulty]);
+};
+
+window.cycleRest = function() {
+  currentRestIdx = (currentRestIdx + 1) % restTimes.length;
+  const sec = restTimes[currentRestIdx];
+  document.getElementById('settingRest').textContent = sec + ' s ›';
+  showToast('Odpočinek: ' + sec + ' sekund');
+};
+
+window.toggleSound = function(el) {
+  soundEnabled = !soundEnabled;
+  el.classList.toggle('on', soundEnabled);
+  showToast(soundEnabled ? 'Zvuk zapnut' : 'Zvuk vypnut');
+};
+
+window.showChangePinForm = function() {
+  const form = document.getElementById('changePinForm');
+  const row = document.getElementById('changePinRow');
+  const visible = form.style.display !== 'none';
+  form.style.display = visible ? 'none' : 'block';
+  row.querySelector('.settings-item-value').textContent = visible ? '›' : '↑ skrýt';
+};
+
+window.saveNewPin = async function() {
+  const pin = document.getElementById('newPin').value.trim();
+  const pin2 = document.getElementById('newPin2').value.trim();
+  const err = document.getElementById('pinChangeError');
+  if (!/^\d{4}$/.test(pin)) { err.textContent = 'PIN musí mít 4 číslice.'; return; }
+  if (pin !== pin2) { err.textContent = 'PINy se neshodují.'; return; }
+  err.textContent = '';
+  try {
+    const pinHash = await hashPin(pin);
+    await updateDoc(doc(db, "users", currentUser.uid), { pinHash });
+    currentUser.pinHash = pinHash;
+    showToast('PIN byl změněn ✓');
+    document.getElementById('changePinForm').style.display = 'none';
+    document.getElementById('changePinRow').querySelector('.settings-item-value').textContent = '›';
+    document.getElementById('newPin').value = '';
+    document.getElementById('newPin2').value = '';
+  } catch(e) {
+    err.textContent = 'Chyba: ' + e.message;
+  }
+};
+
+// Beep sound for timer
+function playBeep(freq = 880, dur = 150) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur/1000);
+    osc.start(); osc.stop(ctx.currentTime + dur/1000);
+  } catch(e) {}
 }
 
 // ═══════════════════════════════════════════
@@ -1214,9 +1293,37 @@ tryAutoLogin();
 
       <div class="settings-section-label">Nastavení</div>
       <div class="settings-row">
-        <div class="settings-item"><span class="settings-item-label">Obtížnost</span><span class="settings-item-value">Střední ›</span></div>
-        <div class="settings-item"><span class="settings-item-label">Délka odpočinku</span><span class="settings-item-value">60 s ›</span></div>
-        <div class="settings-item"><span class="settings-item-label">Zvukové signály</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+        <div class="settings-item" onclick="cycleDifficulty()">
+          <span class="settings-item-label">Obtížnost</span>
+          <span class="settings-item-value" id="settingDifficulty">Střední ›</span>
+        </div>
+        <div class="settings-item" onclick="cycleRest()">
+          <span class="settings-item-label">Délka odpočinku</span>
+          <span class="settings-item-value" id="settingRest">60 s ›</span>
+        </div>
+        <div class="settings-item">
+          <span class="settings-item-label">Zvukové signály</span>
+          <div class="toggle on" id="soundToggle" onclick="toggleSound(this)"></div>
+        </div>
+      </div>
+      <div class="settings-section-label">Změna PIN</div>
+      <div class="settings-row">
+        <div class="settings-item" id="changePinRow" onclick="showChangePinForm()">
+          <span class="settings-item-label">Změnit PIN</span>
+          <span class="settings-item-value">›</span>
+        </div>
+      </div>
+      <div id="changePinForm" style="display:none;padding:0.8rem 0">
+        <div class="form-group" style="margin-bottom:0.6rem">
+          <label class="form-label">Nový PIN</label>
+          <input class="form-input" id="newPin" type="number" placeholder="····" maxlength="4">
+        </div>
+        <div class="form-group" style="margin-bottom:0.6rem">
+          <label class="form-label">Nový PIN znovu</label>
+          <input class="form-input" id="newPin2" type="number" placeholder="····" maxlength="4">
+        </div>
+        <button class="auth-btn" style="font-size:0.9rem;padding:10px" onclick="saveNewPin()">ULOŽIT PIN</button>
+        <div class="form-error" id="pinChangeError"></div>
       </div>
 
       <div class="settings-section-label">Účet</div>
