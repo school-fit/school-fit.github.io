@@ -4,10 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SCHOOL FIT</title>
-<meta name="description" content="Školní fitness tracker – VOŠ a SŠVZZ Třebíč">
-<meta name="theme-color" content="#0a0a0a">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
 
 <!-- Firebase SDK -->
@@ -56,7 +52,7 @@ window.registerUser = async function() {
   const err = document.getElementById('regError');
 
   if (!nick || !displayName || !pin) { err.textContent = 'Vyplň všechna pole.'; return; }
-  if (!/^[a-záčďéěíňóřšťúůýž0-9_]{3,20}$/.test(nick)) { err.textContent = 'Přezdívka: 3–20 znaků, písmena (i s háčky)/číslice/_'; return; }
+  if (!/^[a-záčďéěíňóřšťúůýž0-9_]{3,20}$/.test(nick)) { err.textContent = 'Přezdívka: 3–20 znaků, písmena (i háčky/čárky), číslice, _'; return; }
   if (!/^\d{4}$/.test(pin)) { err.textContent = 'PIN musí mít přesně 4 číslice.'; return; }
   if (pin !== pin2) { err.textContent = 'PINy se neshodují.'; return; }
 
@@ -75,7 +71,7 @@ window.registerUser = async function() {
       pinHash,
       shareStats: true,
       createdAt: serverTimestamp(),
-      stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null, workoutDates: [], outdoorMinutes: 0, outdoorKm: 0 }
+      stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null }
     });
 
     showToast('Účet vytvořen! Přihlašuješ se...');
@@ -119,7 +115,6 @@ window.logoutUser = function() {
   completedExercises.clear();
   isRunning = false;
   clearInterval(timerInterval);
-  if (typeof stopOutdoorTracking === 'function') stopOutdoorTracking(true);
   showAuthScreen('login');
 };
 
@@ -143,21 +138,11 @@ window.toggleShare = async function() {
   if (!currentUser) return;
   currentUser.shareStats = !currentUser.shareStats;
   document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
-  const updates = {
-    "stats.totalWorkouts": increment(alreadyToday ? 0 : 1),
-    "stats.totalMinutes": increment(durationMin),
-    "stats.totalKcal": increment(kcal),
-    "stats.streak": newStreak,
-    "stats.lastWorkout": today,
-    "stats.workoutDates": updatedDates
-  };
-  if (extraData?.outdoorMinutes) updates["stats.outdoorMinutes"] = increment(extraData.outdoorMinutes);
-  if (extraData?.outdoorKm) updates["stats.outdoorKm"] = increment(extraData.outdoorKm);
-  await updateDoc(doc(db, "users", currentUser.uid), updates);
+  await updateDoc(doc(db, "users", currentUser.uid), { shareStats: currentUser.shareStats });
   showToast(currentUser.shareStats ? 'Statistiky jsou nyní veřejné.' : 'Statistiky jsou nyní skryté.');
 };
 
-async function saveWorkoutStats(durationMin, kcal, extraData) {
+async function saveWorkoutStats(durationMin, kcal) {
   if (!currentUser) return;
   const today = new Date().toISOString().split('T')[0];
   const last = currentUser.stats?.lastWorkout;
@@ -171,51 +156,19 @@ async function saveWorkoutStats(durationMin, kcal, extraData) {
   const existingDates = currentUser.stats?.workoutDates || [];
   const updatedDates = existingDates.includes(today) ? existingDates : [...existingDates, today];
 
-  const updateData = {
+  await updateDoc(doc(db, "users", currentUser.uid), {
     "stats.totalWorkouts": increment(alreadyToday ? 0 : 1),
     "stats.totalMinutes": increment(durationMin),
     "stats.totalKcal": increment(kcal),
     "stats.streak": newStreak,
     "stats.lastWorkout": today,
     "stats.workoutDates": updatedDates
-  };
-  if (extraData?.outdoorMinutes) updateData["stats.outdoorMinutes"] = increment(extraData.outdoorMinutes);
-  if (extraData?.outdoorKm) updateData["stats.outdoorKm"] = increment(Math.round(extraData.outdoorKm * 10) / 10);
-
-  // Save outdoor activity log
-  if (extraData?.outdoorMinutes) {
-    const existingActivities = currentUser.stats?.outdoorActivities || [];
-    updateData["stats.outdoorActivities"] = [...existingActivities, {
-      type: extraData.activityType || 'other',
-      name: extraData.activityName || 'Aktivita',
-      icon: extraData.activityIcon || '🏃',
-      date: today,
-      durationMin: extraData.outdoorMinutes,
-      distKm: extraData.outdoorKm || 0,
-      kcal: kcal
-    }];
-  }
-
-  await updateDoc(doc(db, "users", currentUser.uid), updateData);
+  });
   currentUser.stats.workoutDates = updatedDates;
   if (!alreadyToday) currentUser.stats.totalWorkouts = (currentUser.stats.totalWorkouts || 0) + 1;
   currentUser.stats.totalMinutes = (currentUser.stats.totalMinutes || 0) + durationMin;
   currentUser.stats.totalKcal = (currentUser.stats.totalKcal || 0) + kcal;
   currentUser.stats.streak = newStreak;
-  if (extraData?.outdoorMinutes) currentUser.stats.outdoorMinutes = (currentUser.stats.outdoorMinutes||0) + extraData.outdoorMinutes;
-  if (extraData?.outdoorKm) currentUser.stats.outdoorKm = (currentUser.stats.outdoorKm||0) + extraData.outdoorKm;
-  if (extraData?.outdoorMinutes) {
-    if (!currentUser.stats.outdoorActivities) currentUser.stats.outdoorActivities = [];
-    currentUser.stats.outdoorActivities.push({
-      type: extraData.activityType || 'other',
-      name: extraData.activityName || 'Aktivita',
-      icon: extraData.activityIcon || '🏃',
-      date: today,
-      durationMin: extraData.outdoorMinutes,
-      distKm: extraData.outdoorKm || 0,
-      kcal: kcal
-    });
-  }
   updateProfileStats();
   renderWeek();
   renderPlan();
@@ -247,8 +200,7 @@ async function loadLeaderboard() {
       const w = u.stats?.totalWorkouts || 0;
       const kcal = u.stats?.totalKcal || 0;
       const streak = u.stats?.streak || 0;
-      const outdoorKm = u.stats?.outdoorKm || 0;
-      const comment = getFunComment(i, w, streak, outdoorKm, u.displayName);
+      const comment = getFunComment(i, w, streak, u.displayName);
       board.innerHTML += `
         <div class="lb-row ${isMe ? 'lb-me' : ''}">
           <div class="lb-rank">${['🥇','🥈','🥉'][i] || '#'+(i+1)}</div>
@@ -258,7 +210,7 @@ async function loadLeaderboard() {
           </div>
           <div class="lb-stats">
             <div class="lb-stat-num">${w}</div>
-            <div class="lb-stat-label">aktivit</div>
+            <div class="lb-stat-label">tréninků</div>
             <div class="lb-stat-kcal">${kcal} kcal</div>
           </div>
         </div>`;
@@ -275,9 +227,8 @@ async function loadLeaderboard() {
   }
 }
 
-function getFunComment(rank, workouts, streak, outdoorKm, name) {
+function getFunComment(rank, workouts, streak, name) {
   if (workouts === 0) return "Zatím jen kouká na ostatní z gauče. 🛋️";
-  if (outdoorKm > 50) return \`\${outdoorKm.toFixed(0)} km venku! Objevuje Vysočinu po kouscích. 🗺️\`;
   if (rank === 0) {
     const tops = ["Absolutní legenda tělocvičny! Snad aspoň jednou otevřel okno. 🏆", "Číslo jedna! Zbytek sboru ho lituje a obdivuje zároveň.", "Ten člověk cvičí víc než mluví na poradách. Úžasné."];
     return tops[Math.floor(Math.random()*tops.length)];
@@ -298,7 +249,48 @@ function showAuthScreen(which) {
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('loginForm').style.display = which === 'login' ? 'block' : 'none';
   document.getElementById('registerForm').style.display = which === 'register' ? 'block' : 'none';
+  // hide forgot panel when switching
+  const fp = document.getElementById('forgotPinPanel');
+  if (fp) fp.style.display = 'none';
 }
+
+// ── FORGOT PIN & ADMIN RESET ──
+window.showForgotPin = function() {
+  const panel = document.getElementById('forgotPinPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+};
+
+window.adminResetPin = async function() {
+  const nick = document.getElementById('adminResetNick').value.trim().toLowerCase();
+  const newPin = document.getElementById('adminResetNewPin').value.trim();
+  const adminPwd = document.getElementById('adminPassword').value.trim();
+  const err = document.getElementById('adminResetError');
+
+  if (!nick || !newPin || !adminPwd) { err.textContent = 'Vyplň všechna pole.'; err.style.color=''; return; }
+  if (!/^\d{4}$/.test(newPin)) { err.textContent = 'PIN musí mít 4 číslice.'; err.style.color=''; return; }
+
+  // Verify admin password: "SchoolFit2024!"
+  const adminBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(adminPwd + "schoolfit_admin_salt"));
+  const adminHash = Array.from(new Uint8Array(adminBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  if (adminHash !== "5b1ff6d4ef2ec73e00452b2f7d75f938e30fb6eb7e09597f51eb4b1356462f78") {
+    err.textContent = 'Nesprávné heslo správce.'; err.style.color=''; return;
+  }
+
+  err.textContent = 'Resetuji...'; err.style.color='var(--muted)';
+  try {
+    const userRef = doc(db, "users", nick);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) { err.textContent = 'Uživatel @' + nick + ' neexistuje.'; err.style.color=''; return; }
+
+    const pinHash = await hashPin(newPin);
+    await updateDoc(userRef, { pinHash });
+
+    err.style.color = '#4f4';
+    err.textContent = '✅ PIN pro @' + nick + ' byl resetován na ' + newPin + '. Nyní se s ním přihlaste.';
+  } catch(e) {
+    err.textContent = 'Chyba: ' + e.message; err.style.color='';
+  }
+};
 
 function showApp() {
   document.getElementById('authScreen').style.display = 'none';
@@ -330,7 +322,6 @@ function updateProfileStats() {
   document.getElementById('profileMin').textContent = s.totalMinutes || 0;
   document.getElementById('profileNick').textContent = '@' + currentUser.uid;
   document.getElementById('profileName').textContent = currentUser.displayName;
-  document.getElementById('profileOutdoorKm').textContent = (s.outdoorKm || 0).toFixed(1);
 }
 
 function setLoading(btnId, loading) {
@@ -362,143 +353,46 @@ window.showAuthScreen = showAuthScreen;
 // ═══════════════════════════════════════════
 // PROGRAMS & EXERCISES
 // ═══════════════════════════════════════════
-// SVG exercise illustrations (simple stick figures)
-const exSvg = {
-  krouzeniPazi: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="16" r="7"/><line x1="40" y1="23" x2="40" y2="48"/><line x1="40" y1="48" x2="30" y2="68"/><line x1="40" y1="48" x2="50" y2="68"/><path d="M24 26 C18 18 30 10 36 20" stroke-dasharray="3 2"/><path d="M56 26 C62 18 50 10 44 20" stroke-dasharray="3 2"/><circle cx="22" cy="26" r="2" fill="currentColor"/><circle cx="58" cy="26" r="2" fill="currentColor"/></svg>`,
-  drepy: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="12" r="7"/><line x1="40" y1="19" x2="40" y2="38"/><line x1="40" y1="38" x2="30" y2="50"/><line x1="30" y1="50" x2="28" y2="68"/><line x1="40" y1="38" x2="50" y2="50"/><line x1="50" y1="50" x2="52" y2="68"/><line x1="40" y1="28" x2="26" y2="36"/><line x1="40" y1="28" x2="54" y2="36"/></svg>`,
-  kliky: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="16" cy="30" r="6"/><line x1="22" y1="32" x2="52" y2="38"/><line x1="52" y1="38" x2="68" y2="58"/><line x1="16" y1="36" x2="16" y2="56"/><line x1="52" y1="38" x2="52" y2="58"/></svg>`,
-  most: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="15" y1="60" x2="65" y2="60"/><circle cx="55" cy="34" r="6"/><path d="M50 40 L38 36 C30 34 22 42 22 50 L22 60"/><line x1="22" y1="50" x2="22" y2="60"/><line x1="38" y1="44" x2="38" y2="60"/><path d="M38 36 Q40 24 50 28" /><line x1="50" y1="40" x2="56" y2="50"/><line x1="56" y1="50" x2="58" y2="60"/></svg>`,
-  superman: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="58" x2="70" y2="58"/><circle cx="30" cy="46" r="6"/><line x1="36" y1="48" x2="54" y2="50"/><line x1="54" y1="50" x2="70" y2="42"/><line x1="24" y1="46" x2="10" y2="38"/><line x1="10" y1="38" x2="8" y2="34" stroke-width="2" /><line x1="70" y1="42" x2="72" y2="38" stroke-width="2" /></svg>`,
-  prkno: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="18" cy="38" r="6"/><line x1="24" y1="40" x2="60" y2="44"/><line x1="18" y1="44" x2="18" y2="60"/><line x1="60" y1="44" x2="62" y2="60"/></svg>`,
-  pochod: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="12" r="7"/><line x1="40" y1="19" x2="40" y2="40"/><line x1="40" y1="40" x2="30" y2="48"/><line x1="30" y1="48" x2="32" y2="68"/><line x1="40" y1="40" x2="50" y2="52"/><line x1="50" y1="52" x2="48" y2="68"/><line x1="40" y1="28" x2="28" y2="20"/><line x1="40" y1="28" x2="54" y2="34"/><path d="M30 46 L30 38" stroke-dasharray="3 2" opacity="0.5"/></svg>`,
-  spicky: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="10" r="6"/><line x1="40" y1="16" x2="40" y2="38"/><line x1="40" y1="38" x2="40" y2="56"/><line x1="40" y1="56" x2="40" y2="62"/><line x1="40" y1="26" x2="28" y2="32"/><line x1="40" y1="26" x2="52" y2="32"/><path d="M36 62 L40 56 L44 62" fill="none"/><path d="M38 64 L42 64" stroke-dasharray="2 1" opacity="0.5"/></svg>`,
-  box: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="14" r="7"/><line x1="40" y1="21" x2="40" y2="46"/><line x1="40" y1="46" x2="32" y2="68"/><line x1="40" y1="46" x2="48" y2="68"/><line x1="40" y1="30" x2="22" y2="22"/><line x1="22" y1="22" x2="14" y2="18"/><line x1="40" y1="30" x2="58" y2="28"/><circle cx="14" cy="18" r="3" fill="currentColor" opacity="0.3"/></svg>`,
-  schody: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M10 68 L10 52 L30 52 L30 36 L50 36 L50 20 L70 20" stroke-width="2" opacity="0.3"/><circle cx="38" cy="24" r="6"/><line x1="38" y1="30" x2="38" y2="46"/><line x1="38" y1="46" x2="30" y2="52"/><line x1="38" y1="46" x2="46" y2="56"/><line x1="38" y1="36" x2="28" y2="30"/><line x1="38" y1="36" x2="48" y2="32"/></svg>`,
-  tanec: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="12" r="7"/><line x1="40" y1="19" x2="40" y2="42"/><line x1="40" y1="42" x2="28" y2="60"/><line x1="40" y1="42" x2="54" y2="58"/><line x1="40" y1="28" x2="24" y2="18"/><line x1="40" y1="28" x2="58" y2="20"/><path d="M24 18 L22 12" /><path d="M58 20 L62 14" /></svg>`,
-  hlava: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="22" r="10"/><line x1="40" y1="32" x2="40" y2="50"/><path d="M30 22 C30 14 50 14 50 22" stroke-dasharray="3 2" opacity="0.5"/><line x1="36" y1="12" x2="32" y2="6" stroke-dasharray="2 2" opacity="0.4"/><line x1="44" y1="12" x2="48" y2="6" stroke-dasharray="2 2" opacity="0.4"/><line x1="40" y1="50" x2="30" y2="68"/><line x1="40" y1="50" x2="50" y2="68"/></svg>`,
-  predklon: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="50" cy="28" r="6"/><path d="M44 30 L28 38"/><line x1="28" y1="38" x2="18" y2="52"/><line x1="50" y1="34" x2="50" y2="56"/><line x1="50" y1="56" x2="42" y2="68"/><line x1="50" y1="56" x2="58" y2="68"/></svg>`,
-  kocka: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="22" cy="30" r="6"/><path d="M28 32 L56 32" /><line x1="28" y1="32" x2="28" y2="60"/><line x1="56" y1="32" x2="56" y2="60"/><path d="M32 32 Q42 18 52 32" stroke-dasharray="3 2" opacity="0.5"/><path d="M32 32 Q42 46 52 32" stroke-dasharray="3 2" opacity="0.3"/></svg>`,
-  motylek: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="20" r="6"/><line x1="40" y1="26" x2="40" y2="44"/><path d="M40 44 L24 56 L24 62 L40 52 L56 62 L56 56 Z" opacity="0.15" fill="currentColor"/><line x1="40" y1="44" x2="24" y2="56"/><line x1="40" y1="44" x2="56" y2="56"/><line x1="24" y1="56" x2="24" y2="62"/><line x1="56" y1="56" x2="56" y2="62"/></svg>`,
-  rotace: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="18" r="6"/><line x1="40" y1="24" x2="40" y2="44"/><line x1="40" y1="44" x2="32" y2="68"/><line x1="40" y1="44" x2="48" y2="68"/><line x1="40" y1="32" x2="22" y2="28"/><line x1="40" y1="32" x2="58" y2="36"/><path d="M36 18 Q30 20 34 26" stroke-dasharray="2 2" opacity="0.5"/></svg>`,
-  kycel: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="16" r="6"/><line x1="40" y1="22" x2="40" y2="40"/><line x1="40" y1="40" x2="26" y2="56"/><line x1="26" y1="56" x2="22" y2="68"/><line x1="40" y1="40" x2="56" y2="56"/><line x1="56" y1="56" x2="60" y2="60"/><line x1="40" y1="30" x2="30" y2="26"/><line x1="40" y1="30" x2="50" y2="26"/></svg>`,
-  krouz_trup: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="14" r="7"/><line x1="40" y1="21" x2="40" y2="44"/><line x1="40" y1="44" x2="32" y2="68"/><line x1="40" y1="44" x2="48" y2="68"/><line x1="40" y1="30" x2="28" y2="24"/><line x1="40" y1="30" x2="52" y2="24"/><circle cx="40" cy="36" r="10" stroke-dasharray="3 2" opacity="0.3"/></svg>`,
-  mrtvyBrouk: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="44" x2="70" y2="44" opacity="0.15" stroke-width="1"/><circle cx="40" cy="44" r="6"/><line x1="40" y1="44" x2="40" y2="44"/><line x1="34" y1="44" x2="16" y2="44"/><line x1="46" y1="44" x2="64" y2="44"/><line x1="16" y1="44" x2="10" y2="32"/><line x1="64" y1="44" x2="70" y2="56"/><line x1="34" y1="44" x2="28" y2="58"/><line x1="46" y1="44" x2="52" y2="30"/></svg>`,
-  bocniPrkno: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="18" cy="28" r="6"/><line x1="22" y1="32" x2="58" y2="44"/><line x1="18" y1="34" x2="18" y2="58"/><line x1="18" y1="44" x2="10" y2="30"/></svg>`,
-  detskaP: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="56" cy="36" r="6"/><path d="M50 38 L34 44 L24 50"/><line x1="34" y1="44" x2="34" y2="58"/><line x1="34" y1="58" x2="28" y2="64"/><line x1="34" y1="58" x2="40" y2="64"/><line x1="24" y1="50" x2="18" y2="52"/></svg>`,
-  zidleDrep: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="48" y="20" width="18" height="48" rx="2" stroke-dasharray="3 2" opacity="0.2"/><circle cx="36" cy="14" r="6"/><line x1="36" y1="20" x2="36" y2="38"/><line x1="36" y1="38" x2="28" y2="50"/><line x1="28" y1="50" x2="26" y2="68"/><line x1="36" y1="38" x2="46" y2="50"/><line x1="46" y1="50" x2="48" y2="68"/><line x1="36" y1="28" x2="26" y2="24"/><line x1="36" y1="28" x2="48" y2="30"/></svg>`,
-  vypadyVzad: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="10" r="6"/><line x1="40" y1="16" x2="40" y2="36"/><line x1="40" y1="36" x2="32" y2="52"/><line x1="32" y1="52" x2="30" y2="64"/><line x1="40" y1="36" x2="52" y2="54"/><line x1="52" y1="54" x2="54" y2="64"/><line x1="40" y1="24" x2="30" y2="20"/><line x1="40" y1="24" x2="50" y2="20"/><path d="M48 36 L56 32" stroke-dasharray="3 2" opacity="0.4"/></svg>`,
-  wallSit: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="60" y1="8" x2="60" y2="72" stroke-dasharray="4 2" opacity="0.2"/><circle cx="46" cy="18" r="6"/><line x1="50" y1="22" x2="56" y2="36"/><line x1="56" y1="36" x2="56" y2="42"/><line x1="56" y1="42" x2="42" y2="42"/><line x1="42" y1="42" x2="36" y2="56"/><line x1="36" y1="56" x2="34" y2="68"/><line x1="42" y1="42" x2="50" y2="56"/><line x1="50" y1="56" x2="52" y2="68"/></svg>`,
-  vypony: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="40" cy="10" r="6"/><line x1="40" y1="16" x2="40" y2="40"/><line x1="40" y1="40" x2="40" y2="56"/><line x1="40" y1="24" x2="30" y2="20"/><line x1="40" y1="24" x2="50" y2="20"/><path d="M36 56 L40 50 L44 56" /><path d="M36 60 Q40 56 44 60" stroke-dasharray="2 2" opacity="0.4"/><path d="M38 62 L40 56 L42 62" stroke-width="1.5" opacity="0.3"/></svg>`,
-  mostJednonoz: `<svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="60" x2="70" y2="60" opacity="0.15" stroke-width="1"/><circle cx="55" cy="34" r="6"/><path d="M50 40 L38 36 C30 34 22 42 22 50 L22 60"/><line x1="38" y1="44" x2="38" y2="60"/><line x1="50" y1="40" x2="56" y2="50"/><line x1="56" y1="50" x2="58" y2="60"/><line x1="50" y1="40" x2="62" y2="36" stroke-dasharray="3 2"/></svg>`,
-};
-
 const programs = [
-  { name:"CELOTĚLOVÝ TRÉNINK", type:"indoor", meta:"20 min · 6 cvičení", kcal:100, min:20,
-    desc:"Základní trénink pro celé tělo. Bez skoků, šetrný ke kloubům.",
+  { name:"SILOVÝ TRÉNINK", meta:"25 min · 4 cvičení", kcal:120, min:25,
     exercises:[
-      {icon:"🔄",name:"Kroužení pažemi + úklony",detail:"1 min – rozcvička",restSec:15,workSec:60,
-        svg:exSvg.krouzeniPazi,
-        howto:"Stojte rovně, nohy na šířku ramen. Kroužte pažemi střídavě vpřed a vzad (10× každým směrem). Poté se pomalu ukloňte vlevo a vpravo – ruku nad hlavu, táhněte se do strany. Dýchejte klidně."},
-      {icon:"🦵",name:"Dřepy",detail:"3 × 10 – pomalu, kolena za špičky",restSec:45,workSec:40,
-        svg:exSvg.drepy,
-        howto:"Nohy na šířku ramen, špičky mírně ven. Pomalu se spouštějte, jako byste si sedali na židli. Kolena směřují za špičkami nohou, záda rovná. Nemusíte hluboko – stačí do úhlu 90°. Zpět nahoru přes paty."},
-      {icon:"💪",name:"Kliky (od stěny nebo na kolenou)",detail:"3 × 8 – zvolte si variantu",restSec:45,workSec:35,
-        svg:exSvg.kliky,
-        howto:"Začátečníci: ruce na stěnu v úrovni ramen, krok od zdi, ohýbejte lokty a přibližte hrudník ke stěně. Pokročilejší: kliky na kolenou na zemi. Lokty svírejte pod úhlem 45° od těla, ne do stran."},
-      {icon:"🌉",name:"Zdvih pánve (most)",detail:"3 × 12 – posiluje zadek a záda",restSec:40,workSec:35,
-        svg:exSvg.most,
-        howto:"Lehněte si na záda, nohy pokrčte, chodidla na zemi. Zvedněte pánev co nejvýš – stáhněte hýždě nahoře. Pomalu spusťte zpět. Ramena a hlava zůstávají na podložce. Skvělé na záda a hýždě."},
-      {icon:"🦸",name:"Superman (leží na břiše)",detail:"3 × 8 – zvedejte ruce i nohy",restSec:40,workSec:30,
-        svg:exSvg.superman,
-        howto:"Na břiše, ruce natažené před sebe. Současně zvedněte paže a nohy pár centimetrů od země – jako by vás někdo táhl za ruce a nohy. Vydržte 2 sekundy, položte. Posiluje celá záda."},
-      {icon:"⏱️",name:"Prkno (plank na předloktích)",detail:"2 × 20–30 s – držte rovná záda",restSec:40,workSec:30,
-        svg:exSvg.prkno,
-        howto:"Na předloktích a špičkách nohou, tělo rovné jako prkno. Nezvedejte zadek nahoru, neprověšujte břicho dolů. Dívejte se na zem. Dýchejte! Když je to moc těžké, položte kolena na zem."},
+      {icon:"💪",name:"Kliky",detail:"3 × 15 opakování",restSec:60,workSec:40},
+      {icon:"🦵",name:"Dřepy",detail:"3 × 20 opakování",restSec:60,workSec:50},
+      {icon:"🏋️",name:"Výpady",detail:"3 × 12 / nohu",restSec:60,workSec:45},
+      {icon:"⚡",name:"Plank",detail:"3 × 45 sekund",restSec:45,workSec:45},
     ]},
-  { name:"KARDIO BEZ SKOKŮ", type:"indoor", meta:"15 min · 5 cvičení", kcal:80, min:15,
-    desc:"Zvýšení tepové frekvence bez zatěžování kolen.",
+  { name:"KARDIO TRÉNINK", meta:"20 min · 6 cvičení", kcal:180, min:20,
     exercises:[
-      {icon:"🚶",name:"Pochodování na místě",detail:"2 min – rozcvička, zvedejte kolena",restSec:15,workSec:120,
-        svg:exSvg.pochod,
-        howto:"Stůjte rovně, střídavě zvedejte kolena do výšky pasu (nebo jak vysoké to jde). Pohybujte pažemi – opačná ruka k opačnému kolenu. Tempo si volte sami, ale udržujte plynulý pohyb."},
-      {icon:"🦶",name:"Výstupy na špičky + úkroky",detail:"3 × 30 s – střídejte",restSec:30,workSec:30,
-        svg:exSvg.spicky,
-        howto:"Vyšplhejte se na špičky a vydržte chvíli nahoře, pak se spusťte. Střídejte s úkroky stranou – krok vlevo, přisunout, krok vpravo, přisunout. Ruce nechte volně při těle nebo v bok."},
-      {icon:"🥊",name:"Údery do vzduchu (box)",detail:"3 × 30 s – střídejte ruce",restSec:30,workSec:30,
-        svg:exSvg.box,
-        howto:"Mírný stoj rozkročný, ruce v pěst u brady. Střídavě vystřelujte pravou a levou rukou vpřed jako při boxu. Zapojte rotaci trupu. Rychlé, ale kontrolované pohyby. Skvělé na kardio i ramena!"},
-      {icon:"🏔️",name:"Stoupání do schodů / step",detail:"3 × 1 min – klidné tempo",restSec:30,workSec:60,
-        svg:exSvg.schody,
-        howto:"Najděte si schod, stupínek nebo nízkou stoličku (15–25 cm). Vystupujte nahoru a dolů – střídejte nohy. Držte rovná záda, celé chodidlo na stupínek. Klidné tempo, není to závod!"},
-      {icon:"💃",name:"Tanec na místě",detail:"2 × 1 min – libovolně, hlavně se hýbejte!",restSec:20,workSec:60,
-        svg:exSvg.tanec,
-        howto:"Pusťte si oblíbenou hudbu a prostě se hýbejte! Přešlapování, kroky do stran, pohyby pažemi – cokoliv vás baví. Cílem je radost z pohybu a zvýšení tepové frekvence. Nikdo se nedívá!"},
+      {icon:"🏃",name:"Jumping jacks",detail:"3 × 30 opakování",restSec:30,workSec:35},
+      {icon:"🦘",name:"Burpees",detail:"3 × 10 opakování",restSec:45,workSec:40},
+      {icon:"⬆️",name:"High knees",detail:"3 × 30 sekund",restSec:30,workSec:30},
+      {icon:"🏃",name:"Mountain climbers",detail:"3 × 20 / nohu",restSec:30,workSec:35},
+      {icon:"🦵",name:"Squat jumps",detail:"3 × 15 opakování",restSec:45,workSec:30},
+      {icon:"🤸",name:"Skipping",detail:"3 × 30 sekund",restSec:30,workSec:30},
     ]},
-  { name:"PROTAŽENÍ A MOBILITA", type:"indoor", meta:"15 min · 6 cvičení", kcal:40, min:15,
-    desc:"Uvolnění celého těla. Ideální ráno nebo po práci.",
+  { name:"STREČINK", meta:"15 min · 5 cvičení", kcal:60, min:15,
     exercises:[
-      {icon:"🙆",name:"Kroužení hlavou a rameny",detail:"1 min – jemně, pomalu",restSec:10,workSec:60,
-        svg:exSvg.hlava,
-        howto:"Pomalu kroužte hlavou – půlkruhy zprava doleva a zpět (ne celé kroužení!). Pak kroužte rameny vpřed a vzad. Všechno pomalu a plynule, bez škubání."},
-      {icon:"🧘",name:"Předklon ve stoje",detail:"2 × 30 s – nechte hlavou dolů",restSec:15,workSec:30,
-        svg:exSvg.predklon,
-        howto:"Nohy mírně od sebe, pomalu se předkloňte – ruce visí dolů k zemi. Nemusíte dosáhnout na zem! Nechte hlavu a ruce volně viset, kolena mohou být lehce pokrčená. Dýchejte do zad."},
-      {icon:"🐱",name:"Kočka – kráva (na čtyřech)",detail:"2 × 10 – prohýbejte a zakulacujte záda",restSec:15,workSec:35,
-        svg:exSvg.kocka,
-        howto:"Na všech čtyřech – ruce pod rameny, kolena pod boky. KOČKA: zakulaťte záda nahoru, bradu k hrudi. KRÁVA: prohněte záda dolů, hlava nahoru. Střídejte pomalu s dýcháním. Báječné na páteř!"},
-      {icon:"🦋",name:"Motýlek v sedě",detail:"2 × 30 s – jemně tlačte kolena k zemi",restSec:15,workSec:30,
-        svg:exSvg.motylek,
-        howto:"Sedněte si, plosky nohou k sobě, kolena do stran. Jemně tlačte lokty proti kolenům směrem k zemi. Netlačte přes bolest – jen příjemné tažení ve vnitřní straně stehen."},
-      {icon:"🔄",name:"Rotace trupu v sedě",detail:"2 × 8 na stranu – pomalu",restSec:15,workSec:30,
-        svg:exSvg.rotace,
-        howto:"Sedněte si s nataženými nohami (nebo pokrčenými). Otočte trup vlevo – pravou ruku dejte na levé koleno. Vydržte 2 s, vraťte se do středu, otočte vpravo. Pomalu a s kontrolou."},
-      {icon:"🧎",name:"Protažení kyčlí (nízký výpad)",detail:"2 × 20 s na stranu",restSec:15,workSec:25,
-        svg:exSvg.kycel,
-        howto:"Klekněte na jedno koleno, druhá noha vpředu pokrčená v 90°. Posuňte boky mírně vpřed – ucítíte tah v přední straně stehna a kyčli. Záda rovná! Výborné po dlouhém sezení."},
+      {icon:"🧘",name:"Předklon",detail:"3 × 30 sekund",restSec:20,workSec:30},
+      {icon:"🦋",name:"Motýlek",detail:"2 × 45 sekund",restSec:20,workSec:45},
+      {icon:"🐱",name:"Kočka/kráva",detail:"2 × 10 opakování",restSec:20,workSec:35},
+      {icon:"🌿",name:"Pigeon pose",detail:"2 × 45 sekund / strana",restSec:20,workSec:45},
+      {icon:"🔄",name:"Rotace trupu",detail:"2 × 15 / strana",restSec:20,workSec:35},
     ]},
-  { name:"POSÍLENÍ ZÁD A CORE", type:"indoor", meta:"20 min · 6 cvičení", kcal:90, min:20,
-    desc:"Prevence bolesti zad. Posílení středu těla.",
+  { name:"HIIT TRÉNINK", meta:"30 min · 5 cvičení", kcal:250, min:30,
     exercises:[
-      {icon:"🔄",name:"Kroužení trupem",detail:"1 min – rozcvička",restSec:15,workSec:60,
-        svg:exSvg.krouz_trup,
-        howto:"Stůjte, ruce v bok. Kroužte trupem dokola – pomalu, plynule. 10× jedním směrem, 10× druhým. Představte si, že malujete boky kruh ve vzduchu. Zahřeje a uvolní záda."},
-      {icon:"🌉",name:"Zdvih pánve (most)",detail:"3 × 12 – výdrž nahoře 2 s",restSec:40,workSec:35,
-        svg:exSvg.most,
-        howto:"Na zádech, nohy pokrčené. Zvedněte pánev, stáhněte hýždě a vydržte nahoře 2 sekundy. Pomalu dolů. Čím pomaleji, tím účinnější. Záda zůstávají rovná, netlačte z krku."},
-      {icon:"🦸",name:"Superman",detail:"3 × 10 – střídavě ruka + protilehlá noha",restSec:40,workSec:35,
-        svg:exSvg.superman,
-        howto:"Na břiše. Zvedněte PRAVOU ruku a LEVOU nohu současně – 2 s výdrž. Položte, vyměňte strany. Střídáním protilehlých končetin posilujete celá záda rovnoměrně."},
-      {icon:"🐛",name:"Mrtvý brouk (dead bug)",detail:"3 × 8 na stranu – záda na podložce",restSec:40,workSec:35,
-        svg:exSvg.mrtvyBrouk,
-        howto:"Na zádech, ruce nad rameny, nohy pokrčené v 90° (jako převrácený brouk). Natáhněte PRAVOU ruku za hlavu a LEVOU nohu vpřed – skoro k zemi. Vraťte, vyměňte. Záda přitisknutá k zemi!"},
-      {icon:"⏱️",name:"Boční prkno",detail:"2 × 15 s na stranu",restSec:30,workSec:20,
-        svg:exSvg.bocniPrkno,
-        howto:"Na boku, opřeni o předloktí. Zvedněte boky – tělo tvoří rovnou linii. Druhá ruka v bok nebo nad hlavu. Příliš těžké? Pokrčte spodní koleno na zem. Posiluje boky a šikmé břišní svaly."},
-      {icon:"🧘",name:"Dětská pozice (protažení zad)",detail:"2 × 30 s – odpočinek",restSec:15,workSec:30,
-        svg:exSvg.detskaP,
-        howto:"Klečte, sedněte si na paty a předkloňte se – čelo na zem (nebo blízko), ruce natažené vpřed na zemi. Dýchejte do zad. Nádherné protažení na závěr – uvolní celá záda a ramena."},
+      {icon:"🔥",name:"Sprint na místě",detail:"5 × 20 sekund",restSec:10,workSec:20},
+      {icon:"💥",name:"Explosive kliky",detail:"4 × 10 opakování",restSec:20,workSec:30},
+      {icon:"⚡",name:"Jump squats",detail:"4 × 15 opakování",restSec:20,workSec:30},
+      {icon:"🦘",name:"Burpees",detail:"4 × 8 opakování",restSec:20,workSec:35},
+      {icon:"🏃",name:"Mountain climbers",detail:"4 × 30 sekund",restSec:10,workSec:30},
     ]},
-  { name:"POSÍLENÍ NOHOU", type:"indoor", meta:"20 min · 6 cvičení", kcal:90, min:20,
-    desc:"Silné nohy bez skákání. Vhodné i při citlivých kolenech.",
+  { name:"TRÉNINK NOH", meta:"25 min · 5 cvičení", kcal:150, min:25,
     exercises:[
-      {icon:"🚶",name:"Pochodování s vysokými koleny",detail:"1 min – rozcvička",restSec:15,workSec:60,
-        svg:exSvg.pochod,
-        howto:"Střídavě zvedejte kolena co nejvýš (alespoň do úrovně pasu). Pohybujte pažemi do protipohybu. Rozproudí krev v nohách a připraví svaly na zátěž."},
-      {icon:"🦵",name:"Dřepy ke židli",detail:"3 × 10 – jako byste si sedali",restSec:45,workSec:35,
-        svg:exSvg.zidleDrep,
-        howto:"Postavte se zády k židli. Pomalu se spouštějte, jako byste si chtěli sednout – dotkněte se zadkem sedáku a hned se vraťte nahoru. Židle je vaše pojistka! Záda rovná, váha na patách."},
-      {icon:"🚶",name:"Výpady vzad",detail:"3 × 8 na nohu – krok dozadu",restSec:45,workSec:40,
-        svg:exSvg.vypadyVzad,
-        howto:"Stůjte rovně. Udělejte krok DOZADU jednou nohou a pokrčte obě kolena do 90°. Přední koleno nepřesahuje špičku. Odtlačte se zpět. Krok vzad je šetrnější ke kolenům než krok vpřed!"},
-      {icon:"🌉",name:"Zdvih pánve jednonož",detail:"2 × 8 na nohu – střídejte",restSec:40,workSec:30,
-        svg:exSvg.mostJednonoz,
-        howto:"Jako klasický most (na zádech, pánev nahoru), ale jednu nohu natáhněte rovně před sebe. Zvedejte pánev jen na jedné noze. Náročnější verze – pokud je to moc, zůstaňte u obounožné."},
-      {icon:"🧱",name:"Výdrž u zdi (wall sit)",detail:"2 × 20–30 s – záda u zdi",restSec:40,workSec:25,
-        svg:exSvg.wallSit,
-        howto:"Opřete záda o zeď a sjíždějte dolů, dokud stehna nebudou (přibližně) vodorovně. Kolena v 90°, záda přitisknutá ke zdi. Vydržte! Posiluje stehna bez nárazu na klouby."},
-      {icon:"⬆️",name:"Výpony na lýtka",detail:"3 × 15 – u zdi pro stabilitu",restSec:30,workSec:25,
-        svg:exSvg.vypony,
-        howto:"Stůjte u zdi (ruka na zdi pro oporu). Pomalu se vyšplhejte na špičky co nejvýš. Vydržte chvilku nahoře, pomalu se vraťte. Na schodě s patou přes hranu je to ještě účinnější."},
+      {icon:"🦵",name:"Dřepy",detail:"4 × 20 opakování",restSec:60,workSec:45},
+      {icon:"🚶",name:"Výpady chůzí",detail:"3 × 12 / nohu",restSec:60,workSec:40},
+      {icon:"🔄",name:"Rumunský mrtvý tah",detail:"3 × 15 opakování",restSec:60,workSec:45},
+      {icon:"🦘",name:"Box jumps",detail:"3 × 10 opakování",restSec:45,workSec:35},
+      {icon:"⬆️",name:"Výpony na lýtka",detail:"3 × 25 opakování",restSec:45,workSec:30},
     ]},
 ];
 
@@ -522,37 +416,19 @@ function renderExercises() {
   list.innerHTML = '';
   prog.exercises.forEach((ex, i) => {
     const done = completedExercises.has(i);
-    const expanded = expandedExercise === i;
     list.innerHTML += `
-      <div class="exercise-item ${done?'done':''}">
-        <div class="exercise-main" onclick="toggleExercise(${i})">
-          <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
-          <div class="exercise-icon">${ex.icon}</div>
-          <div class="exercise-info">
-            <div class="exercise-name">${ex.name}</div>
-            <div class="exercise-detail">${ex.detail}</div>
-          </div>
-          <div class="exercise-check">${done?'✓':''}</div>
+      <div class="exercise-item ${done?'done':''}" onclick="toggleExercise(${i})">
+        <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
+        <div class="exercise-icon">${ex.icon}</div>
+        <div class="exercise-info">
+          <div class="exercise-name">${ex.name}</div>
+          <div class="exercise-detail">${ex.detail}</div>
         </div>
-        <button class="exercise-info-btn ${expanded?'open':''}" onclick="toggleExerciseInfo(${i})" title="Jak na to?">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        </button>
-        ${expanded ? `
-        <div class="exercise-detail-panel">
-          <div class="exercise-svg-wrap">${ex.svg||''}</div>
-          <div class="exercise-howto">${ex.howto||''}</div>
-        </div>` : ''}
+        <div class="exercise-check">${done?'✓':''}</div>
       </div>`;
   });
   updateProgress();
 }
-
-let expandedExercise = -1;
-
-window.toggleExerciseInfo = function(i) {
-  expandedExercise = expandedExercise === i ? -1 : i;
-  renderExercises();
-};
 
 window.toggleExercise = function(i) {
   if (completedExercises.has(i)) completedExercises.delete(i);
@@ -603,7 +479,7 @@ function startTimerPhase() {
   const phase = timerQueue[timerQueueIndex];
   timerSeconds = timerMax = phase.sec;
   document.getElementById('timerExerciseName').textContent = phase.name;
-  document.getElementById('timerPhaseLabel').textContent = phase.type==='work'?'CVIČENÍ':'ODPOČINEK';
+  document.getElementById('timerPhaseLabel').textContent = phase.type==='work'?'PRACOVNÍ FÁZE':'ODPOČINEK';
   document.getElementById('timerCount').className = 'timer-count'+(phase.type==='rest'?' rest':'');
   updateTimerUI();
   clearInterval(timerInterval);
@@ -690,9 +566,8 @@ function renderPlan() {
   const list = document.getElementById('planList');
   if (!list) return;
   const dayNames = ['Po','Út','St','Čt','Pá','So','Ne'];
-  const planPrograms = ['Celotělový','Procházka / kolo','Záda a core','Kardio bez skoků','Protažení','Nohy + venku','Odpočinek'];
-  const planMeta = ['6 cviků · 20 min','30+ min venku','6 cviků · 20 min','5 cviků · 15 min','6 cviků · 15 min','6 cviků + výlet','Regenerace'];
-  const planIcons = ['💪','🚶','🦸','🥊','🧘','🦵','😴'];
+  const planPrograms = ['Silový trénink','Kardio','Silový trénink','HIIT','Strečink','Trénink nohou','Odpočinek'];
+  const planMeta = ['4 cvičení · 25 min','6 cvičení · 20 min','4 cvičení · 25 min','5 cvičení · 30 min','5 cvičení · 15 min','5 cvičení · 25 min','Regenerace'];
   const todayStr = new Date().toISOString().split('T')[0];
   const weekDates = getWeekDates();
   const workoutDates = currentUser?.stats?.workoutDates || [];
@@ -708,7 +583,6 @@ function renderPlan() {
     list.innerHTML += `
       <div class="plan-card ${isToday?'today-plan':''}">
         <div class="plan-day-badge ${isToday?'active':''}">${dayNames[i]}</div>
-        <div style="font-size:1.2rem;flex-shrink:0">${planIcons[i]}</div>
         <div class="plan-card-info">
           <div class="plan-card-name">${planPrograms[i]}</div>
           <div class="plan-card-meta">${planMeta[i]}</div>
@@ -726,41 +600,6 @@ const restTimes = [30, 45, 60, 90, 120];
 let currentDifficulty = 1; // index into difficulties
 let currentRestIdx = 2;    // 60s default
 let soundEnabled = true;
-
-// ═══════════════════════════════════════════
-// MODE SWITCH (indoor / outdoor)
-// ═══════════════════════════════════════════
-let currentMode = 'indoor';
-window.switchMode = function(mode) {
-  currentMode = mode;
-  document.getElementById('sectionIndoor').style.display = mode === 'indoor' ? 'block' : 'none';
-  document.getElementById('sectionOutdoor').style.display = mode === 'outdoor' ? 'block' : 'none';
-  document.getElementById('modeIndoor').classList.toggle('active', mode === 'indoor');
-  document.getElementById('modeOutdoor').classList.toggle('active', mode === 'outdoor');
-  document.getElementById('modeSlider').style.transform = mode === 'outdoor' ? 'translateX(100%)' : 'translateX(0)';
-  if (mode === 'outdoor') renderOutdoorHistory();
-};
-
-function renderOutdoorHistory() {
-  const el = document.getElementById('outdoorHistory');
-  if (!el) return;
-  const allActivities = currentUser?.stats?.outdoorActivities || [];
-  if (allActivities.length === 0) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:0.78rem;text-align:center;padding:1rem">Zatím žádné venkovní aktivity. Vyražte ven! 🌿</div>';
-    return;
-  }
-  const recent = [...allActivities].reverse().slice(0, 8);
-  el.innerHTML = recent.map(a => `
-    <div style="display:flex;align-items:center;gap:0.8rem;padding:0.6rem 0;border-bottom:1px solid var(--border)">
-      <div style="font-size:1.3rem">${a.icon||'🏃'}</div>
-      <div style="flex:1">
-        <div style="font-weight:600;font-size:0.82rem">${a.name||a.type}</div>
-        <div style="font-size:0.68rem;color:var(--muted)">${a.date} · ${a.distKm ? a.distKm.toFixed(1)+' km · ' : ''}${a.durationMin} min</div>
-      </div>
-      <div style="font-size:0.78rem;color:var(--accent);font-weight:600">${a.kcal||0} kcal</div>
-    </div>
-  `).join('');
-}
 
 window.cycleDifficulty = function() {
   currentDifficulty = (currentDifficulty + 1) % difficulties.length;
@@ -823,88 +662,6 @@ function playBeep(freq = 880, dur = 150) {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur/1000);
     osc.start(); osc.stop(ctx.currentTime + dur/1000);
   } catch(e) {}
-}
-
-
-// ═══════════════════════════════════════════
-// OUTDOOR ACTIVITIES
-// ═══════════════════════════════════════════
-const outdoorActivities = [
-  { id:'walk', name:'Procházka / svižná chůze', icon:'🚶', kcalPerMin: 4 },
-  { id:'run', name:'Rekreační běh / jogging', icon:'🏃', kcalPerMin: 8 },
-  { id:'bike', name:'Jízda na kole', icon:'🚴', kcalPerMin: 7 },
-  { id:'nordic', name:'Nordic walking', icon:'🥾', kcalPerMin: 5 },
-  { id:'other', name:'Jiná venkovní aktivita', icon:'🌳', kcalPerMin: 5 },
-];
-
-let outdoorTracking = null;
-
-window.startOutdoorActivity = function(actId) {
-  const act = outdoorActivities.find(a => a.id === actId);
-  if (!act) return;
-  outdoorTracking = { type:actId, activity:act, startTime:Date.now(), watchId:null, positions:[], totalDistance:0, paused:false, elapsed:0 };
-  if ('geolocation' in navigator) {
-    try {
-      outdoorTracking.watchId = navigator.geolocation.watchPosition(
-        pos => {
-          if (outdoorTracking.paused) return;
-          const p = { lat:pos.coords.latitude, lng:pos.coords.longitude, time:Date.now(), acc:pos.coords.accuracy };
-          if (p.acc > 50) return;
-          if (outdoorTracking.positions.length > 0) {
-            const last = outdoorTracking.positions[outdoorTracking.positions.length-1];
-            const dist = haversine(last.lat,last.lng,p.lat,p.lng);
-            if (dist > 0.003) outdoorTracking.totalDistance += dist;
-          }
-          outdoorTracking.positions.push(p);
-          updateOutdoorUI();
-        },
-        err => {},
-        { enableHighAccuracy:true, maximumAge:5000, timeout:10000 }
-      );
-    } catch(e) {}
-  }
-  outdoorTracking._interval = setInterval(() => {
-    if (!outdoorTracking.paused) { outdoorTracking.elapsed = Date.now() - outdoorTracking.startTime; updateOutdoorUI(); }
-  }, 1000);
-  document.getElementById('outdoorTracker').classList.add('active');
-  document.getElementById('outdoorActName').textContent = act.icon + ' ' + act.name;
-  updateOutdoorUI();
-};
-
-function updateOutdoorUI() {
-  if (!outdoorTracking) return;
-  const elapsed = outdoorTracking.elapsed || 0;
-  const min = Math.floor(elapsed/60000), sec = Math.floor((elapsed%60000)/1000);
-  document.getElementById('outdoorTime').textContent = String(min).padStart(2,'0')+':'+String(sec).padStart(2,'0');
-  document.getElementById('outdoorDist').textContent = outdoorTracking.totalDistance.toFixed(2)+' km';
-  document.getElementById('outdoorKcal').textContent = Math.round((elapsed/60000)*outdoorTracking.activity.kcalPerMin)+' kcal';
-}
-
-window.stopOutdoorTracking = function(silent) {
-  if (!outdoorTracking) return;
-  if (outdoorTracking.watchId) navigator.geolocation.clearWatch(outdoorTracking.watchId);
-  clearInterval(outdoorTracking._interval);
-  const elapsed = outdoorTracking.elapsed||0, min = Math.round(elapsed/60000);
-  const kcal = Math.round((elapsed/60000)*outdoorTracking.activity.kcalPerMin);
-  const km = outdoorTracking.totalDistance;
-  document.getElementById('outdoorTracker').classList.remove('active');
-  if (!silent && min >= 1) {
-    saveWorkoutStats(min, kcal, { 
-      outdoorMinutes:min, 
-      outdoorKm:Math.round(km*10)/10,
-      activityType: outdoorTracking.type,
-      activityName: outdoorTracking.activity.name,
-      activityIcon: outdoorTracking.activity.icon
-    });
-    showToast('✅ '+outdoorTracking.activity.name+': '+min+' min, '+km.toFixed(1)+' km');
-  }
-  outdoorTracking = null;
-};
-
-function haversine(lat1,lon1,lat2,lon2) {
-  const R=6371, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
 // ═══════════════════════════════════════════
@@ -1095,30 +852,6 @@ tryAutoLogin();
   .stat-label { font-size:0.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-top:3px; }
 
   /* SECTION HEADER */
-  /* MODE SWITCH */
-  .mode-switch-wrap { padding:0 1.5rem 1.2rem; }
-  .mode-switch {
-    display:grid; grid-template-columns:1fr 1fr;
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:12px; position:relative; overflow:hidden;
-    height:44px;
-  }
-  .mode-btn {
-    display:flex; align-items:center; justify-content:center; gap:6px;
-    font-family:'Bebas Neue',sans-serif; font-size:1rem; letter-spacing:2px;
-    cursor:pointer; z-index:2; transition:color 0.3s; color:var(--muted);
-    user-select:none; -webkit-user-select:none;
-  }
-  .mode-btn.active { color:#000; }
-  .mode-btn span { font-size:1.1rem; }
-  .mode-slider {
-    position:absolute; top:3px; left:3px;
-    width:calc(50% - 3px); height:calc(100% - 6px);
-    background:var(--accent); border-radius:10px;
-    transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);
-    z-index:1;
-  }
-
   .section-header {
     display:flex; align-items:center; justify-content:space-between;
     padding:0 1.5rem; margin-bottom:0.8rem;
@@ -1158,18 +891,13 @@ tryAutoLogin();
   .workout-header-meta { font-size:0.72rem; font-weight:600; color:rgba(0,0,0,0.55); text-transform:uppercase; letter-spacing:1px; }
   .exercise-list { padding:0.8rem; }
   .exercise-item {
-    border-radius:10px; margin-bottom:4px;
-    border:1px solid transparent;
-    transition:all 0.2s;
-    position:relative;
+    display:flex; align-items:center; gap:0.8rem;
+    padding:0.8rem; border-radius:10px; margin-bottom:4px;
+    cursor:pointer; transition:all 0.2s; border:1px solid transparent;
   }
   .exercise-item:hover { background:var(--surface2); border-color:var(--border); }
   .exercise-item.done { opacity:0.4; }
   .exercise-item.done .exercise-name { text-decoration:line-through; }
-  .exercise-main {
-    display:flex; align-items:center; gap:0.8rem;
-    padding:0.8rem; cursor:pointer;
-  }
   .exercise-num { font-family:'Bebas Neue',sans-serif; font-size:1.1rem; color:var(--muted); width:22px; text-align:center; flex-shrink:0; }
   .exercise-icon { font-size:1.3rem; flex-shrink:0; }
   .exercise-info { flex:1; }
@@ -1179,35 +907,8 @@ tryAutoLogin();
     width:26px; height:26px; border:2px solid var(--border);
     border-radius:7px; display:flex; align-items:center; justify-content:center;
     flex-shrink:0; transition:all 0.2s; font-size:0.75rem;
-    margin-right:28px;
   }
   .exercise-item.done .exercise-check { background:var(--accent); border-color:var(--accent); color:#000; }
-
-  .exercise-info-btn {
-    position:absolute; top:0.7rem; right:0.5rem;
-    width:26px; height:26px; background:none; border:none; color:var(--muted);
-    cursor:pointer; padding:0; transition:all 0.2s; opacity:0.5;
-  }
-  .exercise-info-btn:hover, .exercise-info-btn.open { opacity:1; color:var(--accent3); }
-  .exercise-info-btn svg { width:18px; height:18px; }
-
-  .exercise-detail-panel {
-    display:flex; gap:1rem; padding:0.6rem 0.8rem 1rem;
-    border-top:1px solid var(--border);
-    animation:fadeUp 0.25s ease both;
-  }
-  .exercise-svg-wrap {
-    flex:0 0 72px; width:72px; height:72px;
-    background:var(--surface2); border:1px solid var(--border);
-    border-radius:10px; padding:4px;
-    display:flex; align-items:center; justify-content:center;
-    color:var(--accent3);
-  }
-  .exercise-svg-wrap svg { width:100%; height:100%; }
-  .exercise-howto {
-    flex:1; font-size:0.76rem; line-height:1.5;
-    color:var(--text); opacity:0.85;
-  }
   .progress-bar-wrap {
     padding:0.9rem 1.4rem; border-top:1px solid var(--border);
     display:flex; align-items:center; gap:1rem;
@@ -1397,34 +1098,6 @@ tryAutoLogin();
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 
   /* ANIMATIONS */
-
-  /* OUTDOOR */
-  .outdoor-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; }
-  .outdoor-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; cursor:pointer; transition:all 0.2s; text-align:center; }
-  .outdoor-card:hover { border-color:#3ae8c0; transform:translateY(-1px); }
-  .outdoor-card .oc-icon { font-size:1.8rem; margin-bottom:0.4rem; }
-  .outdoor-card .oc-name { font-family:'Bebas Neue',sans-serif; font-size:0.8rem; letter-spacing:1.5px; margin-bottom:2px; }
-  .outdoor-card .oc-desc { font-size:0.6rem; color:var(--muted); }
-  .outdoor-card:last-child:nth-child(odd) { grid-column:1/-1; }
-
-  .outdoor-tracker { position:fixed; inset:0; background:var(--bg); z-index:500; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1.5rem; opacity:0; pointer-events:none; transition:opacity 0.3s; }
-  .outdoor-tracker.active { opacity:1; pointer-events:all; }
-  .ot-activity-name { font-size:0.8rem; letter-spacing:3px; text-transform:uppercase; color:var(--muted); }
-  .ot-time { font-family:'Bebas Neue',sans-serif; font-size:6rem; color:#3ae8c0; line-height:1; }
-  .ot-stats { display:flex; gap:2rem; }
-  .ot-stat { text-align:center; }
-  .ot-stat-val { font-family:'Bebas Neue',sans-serif; font-size:1.8rem; color:var(--text); }
-  .ot-stat-label { font-size:0.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); }
-  .ot-stop-btn { background:var(--accent2); color:#fff; border:none; padding:1rem 3rem; border-radius:100px; font-family:'Bebas Neue',sans-serif; font-size:1.2rem; letter-spacing:4px; cursor:pointer; margin-top:1rem; transition:all 0.2s; }
-  .ot-stop-btn:hover { transform:scale(1.05); }
-  .ot-gps-hint { font-size:0.65rem; color:var(--muted); letter-spacing:1px; }
-
-  .profile-stat-card.accent-outdoor { border-color:#3ae8c0; background:#0a1a16; }
-  .profile-stat-card.accent-outdoor .profile-stat-num { color:#3ae8c0; }
-
-  .info-banner { margin:0 1.5rem 1rem; padding:0.8rem 1rem; background:var(--surface); border:1px solid var(--border); border-radius:10px; font-size:0.72rem; color:var(--muted); line-height:1.5; }
-  .info-banner strong { color:#3ae8c0; }
-
   @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
   @keyframes pulse-ring {
     0%{box-shadow:0 0 0 0 rgba(232,255,58,0.4)}
@@ -1468,29 +1141,20 @@ tryAutoLogin();
       <button class="auth-btn" id="loginBtn" data-label="PŘIHLÁSIT SE" onclick="loginUser()">PŘIHLÁSIT SE</button>
       <div class="form-error" id="loginError"></div>
       <div class="auth-switch">Nemáš účet? <a onclick="showAuthScreen('register')">Zaregistruj se</a></div>
-      <div class="auth-switch" style="margin-top:0.5rem"><a onclick="showForgotPin()" style="color:var(--accent2);font-size:0.75rem">Zapomněl/a jsem PIN</a></div>
+      <div style="text-align:center;margin-top:0.6rem"><a onclick="showForgotPin()" style="color:var(--accent2);font-size:0.75rem;cursor:pointer;text-decoration:none">Zapomněl/a jsem PIN</a></div>
 
-      <!-- FORGOT PIN PANEL -->
       <div id="forgotPinPanel" style="display:none;margin-top:1rem;padding:1rem;background:var(--surface2);border-radius:12px;border:1px solid var(--border)">
-        <div style="font-size:0.82rem;line-height:1.5;color:var(--text);margin-bottom:0.8rem">
-          PIN si nemůžeš obnovit sám/sama. Kontaktuj <strong>správce aplikace</strong> (ICT) a požádej o reset PINu.
+        <div style="font-size:0.82rem;line-height:1.5;color:var(--text);margin-bottom:0.6rem">
+          PIN si nemůžeš obnovit sám/sama. Požádej <strong>správce (ICT)</strong> o reset.
         </div>
-        <div style="font-size:0.72rem;color:var(--muted);line-height:1.4">
-          Správce ti nastaví dočasný PIN, po přihlášení si ho můžeš změnit v Profilu → Změna PIN.
+        <div style="font-size:0.72rem;color:var(--muted);line-height:1.4;margin-bottom:1rem">
+          Po resetu se přihlas s novým PINem. V Profilu → Změna PIN si ho pak změň.
         </div>
-
-        <!-- ADMIN RESET (hidden behind PIN) -->
-        <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.8rem">
-          <div style="font-size:0.65rem;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:0.5rem">Správce – reset PINu</div>
-          <div class="form-group" style="margin-bottom:0.5rem">
-            <input class="form-input" id="adminResetNick" type="text" placeholder="Přezdívka uživatele" style="font-size:0.85rem;padding:10px 12px">
-          </div>
-          <div class="form-group" style="margin-bottom:0.5rem">
-            <input class="form-input" id="adminResetNewPin" type="number" placeholder="Nový PIN (4 číslice)" style="font-size:0.85rem;padding:10px 12px">
-          </div>
-          <div class="form-group" style="margin-bottom:0.5rem">
-            <input class="form-input" id="adminPassword" type="password" placeholder="Heslo správce" style="font-size:0.85rem;padding:10px 12px">
-          </div>
+        <div style="border-top:1px solid var(--border);padding-top:0.8rem">
+          <div style="font-size:0.62rem;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:0.5rem">Správce – reset PINu</div>
+          <div style="margin-bottom:0.5rem"><input class="form-input" id="adminResetNick" type="text" placeholder="Přezdívka uživatele" style="font-size:0.85rem;padding:10px 12px"></div>
+          <div style="margin-bottom:0.5rem"><input class="form-input" id="adminResetNewPin" type="number" placeholder="Nový PIN (4 číslice)" style="font-size:0.85rem;padding:10px 12px"></div>
+          <div style="margin-bottom:0.5rem"><input class="form-input" id="adminPassword" type="password" placeholder="Heslo správce" style="font-size:0.85rem;padding:10px 12px"></div>
           <button class="auth-btn" style="font-size:0.85rem;padding:10px;background:var(--accent2)" onclick="adminResetPin()">RESETOVAT PIN</button>
           <div class="form-error" id="adminResetError"></div>
         </div>
@@ -1536,7 +1200,7 @@ tryAutoLogin();
         🔥 <span class="streak-count" id="streakNum">0</span>
         <span style="color:var(--muted);font-size:0.68rem">dní</span>
       </div>
-      <div class="user-avatar" id="userAvatar" onclick="switchPage('profil',document.querySelectorAll('.nav-item')[3])">
+      <div class="user-avatar" id="userAvatar" onclick="switchPage('profil',document.querySelectorAll('.nav-item')[4])">
         ?
       </div>
     </div>
@@ -1548,7 +1212,7 @@ tryAutoLogin();
       <div class="hero-bg-text">FIT</div>
       <div class="hero-content">
         <div class="day-label" id="todayLabel"></div>
-        <h1 class="hero-title">DNEŠNÍ<br><span class="highlight">AKTIVITA</span></h1>
+        <h1 class="hero-title">DNEŠNÍ<br><span class="highlight">TRÉNINK</span></h1>
         <p class="hero-user">Vítej zpět, <strong id="userGreet"></strong> 💪</p>
       </div>
     </div>
@@ -1564,109 +1228,59 @@ tryAutoLogin();
       </div>
       <div class="stat-item">
         <div class="stat-num" id="statDone">0</div>
-        <div class="stat-label">aktivit</div>
+        <div class="stat-label">tréninků</div>
       </div>
     </div>
 
-    <!-- MODE SWITCHER -->
-    <div class="mode-switch-wrap">
-      <div class="mode-switch" id="modeSwitch">
-        <div class="mode-btn active" id="modeIndoor" onclick="switchMode('indoor')">
-          <span>🏠</span> Doma
-        </div>
-        <div class="mode-btn" id="modeOutdoor" onclick="switchMode('outdoor')">
-          <span>🌳</span> Venku
-        </div>
-        <div class="mode-slider" id="modeSlider"></div>
+    <div class="section-header"><div class="section-title">Programy</div></div>
+    <div class="programs-scroll">
+      <div class="program-card active" onclick="selectProgram(this,0)">
+        <span class="program-icon">💪</span>
+        <div class="program-name">Síla</div>
+        <div class="program-meta">4 cvičení · 25 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,1)">
+        <span class="program-icon">🏃</span>
+        <div class="program-name">Kardio</div>
+        <div class="program-meta">6 cvičení · 20 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,2)">
+        <span class="program-icon">🧘</span>
+        <div class="program-name">Strečink</div>
+        <div class="program-meta">5 cvičení · 15 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,3)">
+        <span class="program-icon">🔥</span>
+        <div class="program-name">HIIT</div>
+        <div class="program-meta">5 cvičení · 30 min</div>
+        <div class="program-difficulty"><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div></div>
+      </div>
+      <div class="program-card" onclick="selectProgram(this,4)">
+        <span class="program-icon">🦵</span>
+        <div class="program-name">Nohy</div>
+        <div class="program-meta">5 cvičení · 25 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div></div>
       </div>
     </div>
 
-    <!-- INDOOR SECTION -->
-    <div id="sectionIndoor">
-      <div class="section-header"><div class="section-title">Domácí cvičení</div></div>
-      <div class="info-banner">
-        <strong>Tip:</strong> Všechny cviky jsou bez skoků a šetrné ke kloubům. Každý program začíná rozcvičkou. Cvičte ve svém tempu.
-      </div>
-
-      <div class="programs-scroll">
-        <div class="program-card active" onclick="selectProgram(this,0)">
-          <span class="program-icon">💪</span>
-          <div class="program-name">Celotělový</div>
-          <div class="program-meta">6 cviků · 20 min</div>
+    <div class="workout-section">
+      <div class="workout-card">
+        <div class="workout-header">
+          <div class="workout-header-title" id="workoutTitle">SILOVÝ TRÉNINK</div>
+          <div class="workout-header-meta" id="workoutMeta">25 min · 4 cvičení</div>
         </div>
-        <div class="program-card" onclick="selectProgram(this,1)">
-          <span class="program-icon">🥊</span>
-          <div class="program-name">Kardio</div>
-          <div class="program-meta">5 cviků · 15 min</div>
-        </div>
-        <div class="program-card" onclick="selectProgram(this,2)">
-          <span class="program-icon">🧘</span>
-          <div class="program-name">Protažení</div>
-          <div class="program-meta">6 cviků · 15 min</div>
-        </div>
-        <div class="program-card" onclick="selectProgram(this,3)">
-          <span class="program-icon">🦸</span>
-          <div class="program-name">Záda & core</div>
-          <div class="program-meta">6 cviků · 20 min</div>
-        </div>
-        <div class="program-card" onclick="selectProgram(this,4)">
-          <span class="program-icon">🦵</span>
-          <div class="program-name">Nohy</div>
-          <div class="program-meta">6 cviků · 20 min</div>
+        <div class="exercise-list" id="exerciseList"></div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <div class="progress-label" id="progressLabel">0 / 4</div>
         </div>
       </div>
+    </div>
 
-      <div class="workout-section">
-        <div class="workout-card">
-          <div class="workout-header">
-            <div class="workout-header-title" id="workoutTitle">CELOTĚLOVÝ TRÉNINK</div>
-            <div class="workout-header-meta" id="workoutMeta">20 min · 6 cvičení</div>
-          </div>
-          <div class="exercise-list" id="exerciseList"></div>
-          <div class="progress-bar-wrap">
-            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-            <div class="progress-label" id="progressLabel">0 / 6</div>
-          </div>
-        </div>
-      </div>
-
-      <button class="start-btn" id="startBtn" onclick="startWorkout()">ZAČÍT TRÉNINK</button>
-    </div><!-- end sectionIndoor -->
-
-    <!-- OUTDOOR SECTION -->
-    <div id="sectionOutdoor" style="display:none">
-      <div class="section-header"><div class="section-title">Venkovní aktivity</div></div>
-
-      <div class="info-banner">
-        <strong>GPS tracking:</strong> Na mobilu se aktivuje GPS pro měření vzdálenosti a rychlosti. Přidejte si appku na plochu pro nejlepší zážitek.
-      </div>
-
-      <div style="padding:0 1.5rem 1.5rem">
-        <div class="outdoor-grid">
-          <div class="outdoor-card" onclick="startOutdoorActivity('walk')">
-            <div class="oc-icon">🚶</div><div class="oc-name">Procházka</div><div class="oc-desc">Svižná chůze</div>
-          </div>
-          <div class="outdoor-card" onclick="startOutdoorActivity('run')">
-            <div class="oc-icon">🏃</div><div class="oc-name">Běh / jogging</div><div class="oc-desc">Volné tempo</div>
-          </div>
-          <div class="outdoor-card" onclick="startOutdoorActivity('bike')">
-            <div class="oc-icon">🚴</div><div class="oc-name">Kolo</div><div class="oc-desc">Šetrné ke kloubům</div>
-          </div>
-          <div class="outdoor-card" onclick="startOutdoorActivity('nordic')">
-            <div class="oc-icon">🥾</div><div class="oc-name">Nordic walking</div><div class="oc-desc">Hole zapojí celé tělo</div>
-          </div>
-          <div class="outdoor-card" onclick="startOutdoorActivity('other')">
-            <div class="oc-icon">🌳</div><div class="oc-name">Jiná aktivita</div><div class="oc-desc">Zahrada, turistika, plavání...</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- OUTDOOR HISTORY -->
-      <div id="outdoorHistorySection" style="padding:0 1.5rem 1.5rem">
-        <div class="section-title" style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:2px;margin-bottom:0.6rem">Poslední aktivity</div>
-        <div id="outdoorHistory"></div>
-      </div>
-    </div><!-- end sectionOutdoor -->
+    <button class="start-btn" id="startBtn" onclick="startWorkout()">ZAČÍT TRÉNINK</button>
 
     <div class="week-section">
       <div class="section-header" style="padding:0;margin-bottom:0.8rem">
@@ -1690,9 +1304,6 @@ tryAutoLogin();
   <div class="page" id="page-plan">
     <div class="plan-page">
       <div class="page-title">TÝDENNÍ PLÁN</div>
-      <div class="info-banner" style="margin:0 0 1rem">
-        <strong>Doporučený rozvrh:</strong> Střídejte domácí cvičení s venkovními aktivitami. Neděle = odpočinek. Přizpůsobte si podle sebe!
-      </div>
       <div id="planList"></div>
     </div>
   </div>
@@ -1712,7 +1323,7 @@ tryAutoLogin();
       <div class="profile-stats-grid">
         <div class="profile-stat-card accent">
           <div class="profile-stat-num" id="profileWorkouts">0</div>
-          <div class="profile-stat-label">aktivit celkem</div>
+          <div class="profile-stat-label">tréninků celkem</div>
         </div>
         <div class="profile-stat-card">
           <div class="profile-stat-num" id="profileStreak">0</div>
@@ -1724,11 +1335,7 @@ tryAutoLogin();
         </div>
         <div class="profile-stat-card">
           <div class="profile-stat-num" id="profileMin">0</div>
-          <div class="profile-stat-label">minut celkem</div>
-        </div>
-        <div class="profile-stat-card accent-outdoor" style="grid-column:1/-1">
-          <div class="profile-stat-num" id="profileOutdoorKm">0.0</div>
-          <div class="profile-stat-label">km venku (GPS) 🌍</div>
+          <div class="profile-stat-label">minut trénováno</div>
         </div>
       </div>
 
@@ -1745,7 +1352,15 @@ tryAutoLogin();
 
       <div class="settings-section-label">Nastavení</div>
       <div class="settings-row">
-<div class="settings-item">
+        <div class="settings-item" onclick="cycleDifficulty()">
+          <span class="settings-item-label">Obtížnost</span>
+          <span class="settings-item-value" id="settingDifficulty">Střední ›</span>
+        </div>
+        <div class="settings-item" onclick="cycleRest()">
+          <span class="settings-item-label">Délka odpočinku</span>
+          <span class="settings-item-value" id="settingRest">60 s ›</span>
+        </div>
+        <div class="settings-item">
           <span class="settings-item-label">Zvukové signály</span>
           <div class="toggle on" id="soundToggle" onclick="toggleSound(this)"></div>
         </div>
@@ -1792,21 +1407,8 @@ tryAutoLogin();
       </svg>
       <span class="timer-count" id="timerCount">30</span>
     </div>
-    <div class="timer-label" id="timerPhaseLabel">CVIČENÍ</div>
+    <div class="timer-label" id="timerPhaseLabel">PRACOVNÍ FÁZE</div>
     <button class="timer-skip" onclick="skipTimer()">PŘESKOČIT ›</button>
-  </div>
-
-
-  <!-- OUTDOOR TRACKER OVERLAY -->
-  <div class="outdoor-tracker" id="outdoorTracker">
-    <div class="ot-activity-name" id="outdoorActName">🚶 Procházka</div>
-    <div class="ot-time" id="outdoorTime">00:00</div>
-    <div class="ot-stats">
-      <div class="ot-stat"><div class="ot-stat-val" id="outdoorDist">0.00 km</div><div class="ot-stat-label">vzdálenost</div></div>
-      <div class="ot-stat"><div class="ot-stat-val" id="outdoorKcal">0 kcal</div><div class="ot-stat-label">kalorie</div></div>
-    </div>
-    <div class="ot-gps-hint">📡 GPS aktivní – nechte obrazovku zapnutou</div>
-    <button class="ot-stop-btn" onclick="stopOutdoorTracking()">UKONČIT AKTIVITU</button>
   </div>
 
   <!-- BOTTOM NAV -->
@@ -1833,70 +1435,9 @@ tryAutoLogin();
 
 <div id="toast"></div>
 
-<script type="module">
-// ── Standalone admin reset & PIN dots (independent of main app module) ──
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
-const _app = initializeApp({
-  apiKey: "AIzaSyD6zB4F_plnrxGIlY_9oCS8Cx611liMy1s",
-  authDomain: "school-fit-d1e46.firebaseapp.com",
-  projectId: "school-fit-d1e46",
-  storageBucket: "school-fit-d1e46.firebasestorage.app",
-  messagingSenderId: "87003616281",
-  appId: "1:87003616281:web:3292688ceab2d08d9d0688"
-}, "admin-reset");
-const _db = getFirestore(_app);
-
-const ADMIN_HASH = "5b1ff6d4ef2ec73e00452b2f7d75f938e30fb6eb7e09597f51eb4b1356462f78";
-
-async function _hashPin(pin) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin + "schoolfit_salt"));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-}
-
-window.showForgotPin = function() {
-  const panel = document.getElementById('forgotPinPanel');
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-};
-
-window.adminResetPin = async function() {
-  const nick = document.getElementById('adminResetNick').value.trim().toLowerCase();
-  const newPin = document.getElementById('adminResetNewPin').value.trim();
-  const adminPwd = document.getElementById('adminPassword').value.trim();
-  const err = document.getElementById('adminResetError');
-
-  if (!nick || !newPin || !adminPwd) { err.textContent = 'Vyplň všechna pole.'; err.style.color = ''; return; }
-  if (!/^\d{4}$/.test(newPin)) { err.textContent = 'PIN musí mít 4 číslice.'; err.style.color = ''; return; }
-
-  const adminBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(adminPwd + "schoolfit_admin_salt"));
-  const adminHash = Array.from(new Uint8Array(adminBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
-
-  if (adminHash !== ADMIN_HASH) {
-    err.textContent = 'Nesprávné heslo správce.'; err.style.color = ''; return;
-  }
-
-  err.textContent = 'Resetuji...'; err.style.color = 'var(--muted)';
-  try {
-    const userRef = doc(_db, "users", nick);
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) { err.textContent = 'Uživatel "' + nick + '" neexistuje.'; err.style.color = ''; return; }
-
-    const pinHash = await _hashPin(newPin);
-    await updateDoc(userRef, { pinHash });
-
-    err.style.color = 'var(--accent)';
-    err.textContent = '✅ PIN pro @' + nick + ' byl resetován na ' + newPin;
-    document.getElementById('adminResetNick').value = '';
-    document.getElementById('adminResetNewPin').value = '';
-    document.getElementById('adminPassword').value = '';
-  } catch(e) {
-    err.textContent = 'Chyba: ' + e.message; err.style.color = '';
-  }
-};
-
-// PIN dots visual feedback (global)
-window.updatePinDots = function(inputId, dotPrefix) {
+<script>
+// PIN dots visual feedback
+function updatePinDots(inputId, dotPrefix) {
   const val = document.getElementById(inputId).value.toString().slice(0,4);
   for (let i=0;i<4;i++) {
     const d = document.getElementById(dotPrefix+i);
@@ -1904,9 +1445,11 @@ window.updatePinDots = function(inputId, dotPrefix) {
     d.textContent = i < val.length ? '●' : '·';
     d.className = 'pin-dot' + (i < val.length ? ' filled' : '');
   }
-};
+}
 
 // Avatar letter update
+const origShowApp = window.showApp;
+// Patch avatar after login
 const patchAvatar = () => {
   if (!window.currentUser) return;
   const letter = (window.currentUser.displayName || '?')[0].toUpperCase();
@@ -1915,6 +1458,7 @@ const patchAvatar = () => {
   if (av) av.textContent = letter;
   if (pav) pav.textContent = letter;
 };
+// MutationObserver to patch avatar when appScreen becomes visible
 new MutationObserver(() => patchAvatar()).observe(document.getElementById('appScreen'), {attributes:true, attributeFilter:['style']});
 </script>
 
