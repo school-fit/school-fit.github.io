@@ -362,17 +362,11 @@ window.showAuthScreen = showAuthScreen;
 // ═══════════════════════════════════════════
 // FORGOT PIN & ADMIN RESET
 // ═══════════════════════════════════════════
-window.showForgotPin = function() {
-  const panel = document.getElementById('forgotPinPanel');
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-};
 
-// Admin password hash (change this to your own!)
-// Default: "schoolfit2024" → you can change it by running:
-// crypto.subtle.digest("SHA-256", new TextEncoder().encode("YOUR_PASSWORD" + "schoolfit_admin_salt"))
+// Admin password hash: heslo "SchoolFit2024!"
 const ADMIN_HASH = "5b1ff6d4ef2ec73e00452b2f7d75f938e30fb6eb7e09597f51eb4b1356462f78"; // heslo: SchoolFit2024!
 
-window.adminResetPin = async function() {
+window._adminResetPin = async function() {
   const nick = document.getElementById('adminResetNick').value.trim().toLowerCase();
   const newPin = document.getElementById('adminResetNewPin').value.trim();
   const adminPwd = document.getElementById('adminPassword').value.trim();
@@ -1897,9 +1891,22 @@ function updatePinDots(inputId, dotPrefix) {
   }
 }
 
+// Forgot PIN toggle
+function showForgotPin() {
+  const panel = document.getElementById('forgotPinPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+// Admin PIN reset (uses window._adminResetPin set by module script)
+function adminResetPin() {
+  if (typeof window._adminResetPin === 'function') {
+    window._adminResetPin();
+  } else {
+    document.getElementById('adminResetError').textContent = 'Aplikace se ještě načítá, zkuste za moment...';
+  }
+}
+
 // Avatar letter update
-const origShowApp = window.showApp;
-// Patch avatar after login
 const patchAvatar = () => {
   if (!window.currentUser) return;
   const letter = (window.currentUser.displayName || '?')[0].toUpperCase();
@@ -1908,7 +1915,6 @@ const patchAvatar = () => {
   if (av) av.textContent = letter;
   if (pav) pav.textContent = letter;
 };
-// MutationObserver to patch avatar when appScreen becomes visible
 new MutationObserver(() => patchAvatar()).observe(document.getElementById('appScreen'), {attributes:true, attributeFilter:['style']});
 </script>
 
