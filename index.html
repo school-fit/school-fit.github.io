@@ -360,6 +360,58 @@ window.switchPage = function(pageId, navEl) {
 window.showAuthScreen = showAuthScreen;
 
 // ═══════════════════════════════════════════
+// FORGOT PIN & ADMIN RESET
+// ═══════════════════════════════════════════
+window.showForgotPin = function() {
+  const panel = document.getElementById('forgotPinPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+};
+
+// Admin password hash (change this to your own!)
+// Default: "schoolfit2024" → you can change it by running:
+// crypto.subtle.digest("SHA-256", new TextEncoder().encode("YOUR_PASSWORD" + "schoolfit_admin_salt"))
+const ADMIN_HASH = "5b1ff6d4ef2ec73e00452b2f7d75f938e30fb6eb7e09597f51eb4b1356462f78"; // heslo: SchoolFit2024!
+
+window.adminResetPin = async function() {
+  const nick = document.getElementById('adminResetNick').value.trim().toLowerCase();
+  const newPin = document.getElementById('adminResetNewPin').value.trim();
+  const adminPwd = document.getElementById('adminPassword').value.trim();
+  const err = document.getElementById('adminResetError');
+
+  if (!nick || !newPin || !adminPwd) { err.textContent = 'Vyplň všechna pole.'; return; }
+  if (!/^\d{4}$/.test(newPin)) { err.textContent = 'PIN musí mít 4 číslice.'; return; }
+
+  // Verify admin password
+  const adminBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(adminPwd + "schoolfit_admin_salt"));
+  const adminHash = Array.from(new Uint8Array(adminBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+
+  if (adminHash !== ADMIN_HASH) {
+    err.textContent = 'Nesprávné heslo správce.';
+    return;
+  }
+
+  err.textContent = '';
+  try {
+    const userRef = doc(db, "users", nick);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) { err.textContent = 'Uživatel "' + nick + '" neexistuje.'; return; }
+
+    const pinHash = await hashPin(newPin);
+    await updateDoc(userRef, { pinHash });
+
+    err.style.color = 'var(--accent)';
+    err.textContent = '✅ PIN pro @' + nick + ' byl resetován na ' + newPin;
+    document.getElementById('adminResetNick').value = '';
+    document.getElementById('adminResetNewPin').value = '';
+    document.getElementById('adminPassword').value = '';
+
+    setTimeout(() => { err.style.color = ''; err.textContent = ''; }, 5000);
+  } catch(e) {
+    err.textContent = 'Chyba: ' + e.message;
+  }
+};
+
+// ═══════════════════════════════════════════
 // PROGRAMS & EXERCISES
 // ═══════════════════════════════════════════
 // SVG exercise illustrations (simple stick figures)
@@ -1468,6 +1520,33 @@ tryAutoLogin();
       <button class="auth-btn" id="loginBtn" data-label="PŘIHLÁSIT SE" onclick="loginUser()">PŘIHLÁSIT SE</button>
       <div class="form-error" id="loginError"></div>
       <div class="auth-switch">Nemáš účet? <a onclick="showAuthScreen('register')">Zaregistruj se</a></div>
+      <div class="auth-switch" style="margin-top:0.5rem"><a onclick="showForgotPin()" style="color:var(--accent2);font-size:0.75rem">Zapomněl/a jsem PIN</a></div>
+
+      <!-- FORGOT PIN PANEL -->
+      <div id="forgotPinPanel" style="display:none;margin-top:1rem;padding:1rem;background:var(--surface2);border-radius:12px;border:1px solid var(--border)">
+        <div style="font-size:0.82rem;line-height:1.5;color:var(--text);margin-bottom:0.8rem">
+          PIN si nemůžeš obnovit sám/sama. Kontaktuj <strong>správce aplikace</strong> (ICT) a požádej o reset PINu.
+        </div>
+        <div style="font-size:0.72rem;color:var(--muted);line-height:1.4">
+          Správce ti nastaví dočasný PIN, po přihlášení si ho můžeš změnit v Profilu → Změna PIN.
+        </div>
+
+        <!-- ADMIN RESET (hidden behind PIN) -->
+        <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.8rem">
+          <div style="font-size:0.65rem;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:0.5rem">Správce – reset PINu</div>
+          <div class="form-group" style="margin-bottom:0.5rem">
+            <input class="form-input" id="adminResetNick" type="text" placeholder="Přezdívka uživatele" style="font-size:0.85rem;padding:10px 12px">
+          </div>
+          <div class="form-group" style="margin-bottom:0.5rem">
+            <input class="form-input" id="adminResetNewPin" type="number" placeholder="Nový PIN (4 číslice)" style="font-size:0.85rem;padding:10px 12px">
+          </div>
+          <div class="form-group" style="margin-bottom:0.5rem">
+            <input class="form-input" id="adminPassword" type="password" placeholder="Heslo správce" style="font-size:0.85rem;padding:10px 12px">
+          </div>
+          <button class="auth-btn" style="font-size:0.85rem;padding:10px;background:var(--accent2)" onclick="adminResetPin()">RESETOVAT PIN</button>
+          <div class="form-error" id="adminResetError"></div>
+        </div>
+      </div>
     </div>
 
     <!-- REGISTER -->
