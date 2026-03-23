@@ -360,52 +360,6 @@ window.switchPage = function(pageId, navEl) {
 window.showAuthScreen = showAuthScreen;
 
 // ═══════════════════════════════════════════
-// FORGOT PIN & ADMIN RESET
-// ═══════════════════════════════════════════
-
-// Admin password hash: heslo "SchoolFit2024!"
-const ADMIN_HASH = "5b1ff6d4ef2ec73e00452b2f7d75f938e30fb6eb7e09597f51eb4b1356462f78"; // heslo: SchoolFit2024!
-
-window._adminResetPin = async function() {
-  const nick = document.getElementById('adminResetNick').value.trim().toLowerCase();
-  const newPin = document.getElementById('adminResetNewPin').value.trim();
-  const adminPwd = document.getElementById('adminPassword').value.trim();
-  const err = document.getElementById('adminResetError');
-
-  if (!nick || !newPin || !adminPwd) { err.textContent = 'Vyplň všechna pole.'; return; }
-  if (!/^\d{4}$/.test(newPin)) { err.textContent = 'PIN musí mít 4 číslice.'; return; }
-
-  // Verify admin password
-  const adminBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(adminPwd + "schoolfit_admin_salt"));
-  const adminHash = Array.from(new Uint8Array(adminBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
-
-  if (adminHash !== ADMIN_HASH) {
-    err.textContent = 'Nesprávné heslo správce.';
-    return;
-  }
-
-  err.textContent = '';
-  try {
-    const userRef = doc(db, "users", nick);
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) { err.textContent = 'Uživatel "' + nick + '" neexistuje.'; return; }
-
-    const pinHash = await hashPin(newPin);
-    await updateDoc(userRef, { pinHash });
-
-    err.style.color = 'var(--accent)';
-    err.textContent = '✅ PIN pro @' + nick + ' byl resetován na ' + newPin;
-    document.getElementById('adminResetNick').value = '';
-    document.getElementById('adminResetNewPin').value = '';
-    document.getElementById('adminPassword').value = '';
-
-    setTimeout(() => { err.style.color = ''; err.textContent = ''; }, 5000);
-  } catch(e) {
-    err.textContent = 'Chyba: ' + e.message;
-  }
-};
-
-// ═══════════════════════════════════════════
 // PROGRAMS & EXERCISES
 // ═══════════════════════════════════════════
 // SVG exercise illustrations (simple stick figures)
@@ -1879,9 +1833,70 @@ tryAutoLogin();
 
 <div id="toast"></div>
 
-<script>
-// PIN dots visual feedback
-function updatePinDots(inputId, dotPrefix) {
+<script type="module">
+// ── Standalone admin reset & PIN dots (independent of main app module) ──
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const _app = initializeApp({
+  apiKey: "AIzaSyD6zB4F_plnrxGIlY_9oCS8Cx611liMy1s",
+  authDomain: "school-fit-d1e46.firebaseapp.com",
+  projectId: "school-fit-d1e46",
+  storageBucket: "school-fit-d1e46.firebasestorage.app",
+  messagingSenderId: "87003616281",
+  appId: "1:87003616281:web:3292688ceab2d08d9d0688"
+}, "admin-reset");
+const _db = getFirestore(_app);
+
+const ADMIN_HASH = "5b1ff6d4ef2ec73e00452b2f7d75f938e30fb6eb7e09597f51eb4b1356462f78";
+
+async function _hashPin(pin) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin + "schoolfit_salt"));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+window.showForgotPin = function() {
+  const panel = document.getElementById('forgotPinPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+};
+
+window.adminResetPin = async function() {
+  const nick = document.getElementById('adminResetNick').value.trim().toLowerCase();
+  const newPin = document.getElementById('adminResetNewPin').value.trim();
+  const adminPwd = document.getElementById('adminPassword').value.trim();
+  const err = document.getElementById('adminResetError');
+
+  if (!nick || !newPin || !adminPwd) { err.textContent = 'Vyplň všechna pole.'; err.style.color = ''; return; }
+  if (!/^\d{4}$/.test(newPin)) { err.textContent = 'PIN musí mít 4 číslice.'; err.style.color = ''; return; }
+
+  const adminBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(adminPwd + "schoolfit_admin_salt"));
+  const adminHash = Array.from(new Uint8Array(adminBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+
+  if (adminHash !== ADMIN_HASH) {
+    err.textContent = 'Nesprávné heslo správce.'; err.style.color = ''; return;
+  }
+
+  err.textContent = 'Resetuji...'; err.style.color = 'var(--muted)';
+  try {
+    const userRef = doc(_db, "users", nick);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) { err.textContent = 'Uživatel "' + nick + '" neexistuje.'; err.style.color = ''; return; }
+
+    const pinHash = await _hashPin(newPin);
+    await updateDoc(userRef, { pinHash });
+
+    err.style.color = 'var(--accent)';
+    err.textContent = '✅ PIN pro @' + nick + ' byl resetován na ' + newPin;
+    document.getElementById('adminResetNick').value = '';
+    document.getElementById('adminResetNewPin').value = '';
+    document.getElementById('adminPassword').value = '';
+  } catch(e) {
+    err.textContent = 'Chyba: ' + e.message; err.style.color = '';
+  }
+};
+
+// PIN dots visual feedback (global)
+window.updatePinDots = function(inputId, dotPrefix) {
   const val = document.getElementById(inputId).value.toString().slice(0,4);
   for (let i=0;i<4;i++) {
     const d = document.getElementById(dotPrefix+i);
@@ -1889,22 +1904,7 @@ function updatePinDots(inputId, dotPrefix) {
     d.textContent = i < val.length ? '●' : '·';
     d.className = 'pin-dot' + (i < val.length ? ' filled' : '');
   }
-}
-
-// Forgot PIN toggle
-function showForgotPin() {
-  const panel = document.getElementById('forgotPinPanel');
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-}
-
-// Admin PIN reset (uses window._adminResetPin set by module script)
-function adminResetPin() {
-  if (typeof window._adminResetPin === 'function') {
-    window._adminResetPin();
-  } else {
-    document.getElementById('adminResetError').textContent = 'Aplikace se ještě načítá, zkuste za moment...';
-  }
-}
+};
 
 // Avatar letter update
 const patchAvatar = () => {
