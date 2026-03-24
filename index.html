@@ -2,8 +2,15 @@
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>SCHOOL FIT</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Školní fitness tracker — doma i venku s GPS">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
 
 <!-- Firebase SDK -->
@@ -34,6 +41,20 @@ let completedExercises = new Set();
 let currentProgram = 0;
 let timerInterval = null, timerSeconds = 0, timerMax = 30, isRunning = false;
 let timerQueue = [], timerQueueIndex = 0;
+
+let trainingMode = 'home';
+let outdoorWatchId = null;
+let outdoorLiveTimer = null;
+let outdoorWakeLock = null;
+let outdoorSession = null;
+let outdoorSelectedKind = null;
+let deferredInstallPrompt = null;
+
+const OUTDOOR_TYPES = {
+  walk: { label: 'Chůze', icon: '🚶', kcalPerKm: 35 },
+  run: { label: 'Běh', icon: '🏃', kcalPerKm: 60 },
+  bike: { label: 'Kolo', icon: '🚴', kcalPerKm: 28 }
+};
 
 // hash PIN
 async function hashPin(pin) {
@@ -78,7 +99,8 @@ window.registerUser = async function() {
       pinHash,
       shareStats: true,
       createdAt: serverTimestamp(),
-      stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null }
+      stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null, outdoorKm: 0 },
+      outdoorHistory: []
     });
 
     showToast('Účet vytvořen! Přihlašuješ se...');
@@ -208,6 +230,280 @@ async function saveWorkoutStats(durationMin, kcal) {
   updateProfileStats();
 }
 
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toR = (d) => (d * Math.PI) / 180;
+  const dLat = toR(lat2 - lat1);
+  const dLon = toR(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toR(lat1)) * Math.cos(toR(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function saveOutdoorSession({ kind, km, min, kcal }) {
+  if (!currentUser) return;
+  const label = OUTDOOR_TYPES[kind]?.label || 'Venku';
+  const today = new Date().toISOString().split('T')[0];
+  const last = currentUser.stats?.lastWorkout;
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const newStreak =
+    last === yesterday || last === today ? (currentUser.stats.streak || 0) + 1 : 1;
+
+  const prev = Array.isArray(currentUser.outdoorHistory) ? currentUser.outdoorHistory : [];
+  const hist = [
+    { kind, label, km: Math.round(km * 100) / 100, min, kcal, date: today },
+    ...prev
+  ].slice(0, 15);
+
+  const kmInc = Math.round(km * 1000) / 1000;
+
+  await updateDoc(doc(db, 'users', currentUser.uid), {
+    'stats.totalWorkouts': increment(1),
+    'stats.totalMinutes': increment(min),
+    'stats.totalKcal': increment(kcal),
+    'stats.streak': newStreak,
+    'stats.lastWorkout': today,
+    'stats.outdoorKm': increment(kmInc),
+    outdoorHistory: hist
+  });
+
+  currentUser.stats.totalWorkouts = (currentUser.stats.totalWorkouts || 0) + 1;
+  currentUser.stats.totalMinutes = (currentUser.stats.totalMinutes || 0) + min;
+  currentUser.stats.totalKcal = (currentUser.stats.totalKcal || 0) + kcal;
+  currentUser.stats.streak = newStreak;
+  currentUser.stats.lastWorkout = today;
+  currentUser.stats.outdoorKm = (currentUser.stats.outdoorKm || 0) + km;
+  currentUser.outdoorHistory = hist;
+  updateProfileStats();
+}
+
+function stopOutdoorUiTick() {
+  if (outdoorLiveTimer) {
+    clearInterval(outdoorLiveTimer);
+    outdoorLiveTimer = null;
+  }
+}
+
+function updateOutdoorLiveDisplay() {
+  if (!outdoorSession) return;
+  const elKm = document.getElementById('outdoorKm');
+  const elMin = document.getElementById('outdoorMin');
+  const elKcal = document.getElementById('outdoorKcalEst');
+  if (!elKm) return;
+  const km = outdoorSession.distanceM / 1000;
+  const min = Math.max(0, Math.floor((Date.now() - outdoorSession.startAt) / 60000));
+  const kcalEst = Math.round(km * (OUTDOOR_TYPES[outdoorSession.kind]?.kcalPerKm || 35));
+  elKm.textContent = (Math.round(km * 100) / 100).toFixed(2);
+  elMin.textContent = String(min);
+  elKcal.textContent = String(kcalEst);
+}
+
+function clearOutdoorTrackingUi() {
+  stopOutdoorUiTick();
+  outdoorWatchId = null;
+  outdoorSession = null;
+  outdoorSelectedKind = null;
+  document.querySelectorAll('.outdoor-type-btn').forEach((b) => b.classList.remove('selected'));
+  const live = document.getElementById('outdoorLivePanel');
+  const go = document.getElementById('outdoorGoBtn');
+  const stop = document.getElementById('outdoorStopBtn');
+  if (live) live.style.display = 'none';
+  if (go) {
+    go.style.display = 'block';
+    go.disabled = true;
+  }
+  if (stop) stop.style.display = 'none';
+}
+
+async function releaseOutdoorWakeLock() {
+  try {
+    if (outdoorWakeLock && outdoorWakeLock.release) await outdoorWakeLock.release();
+  } catch (e) {}
+  outdoorWakeLock = null;
+}
+
+window.cancelOutdoorWithoutSave = async function () {
+  if (outdoorWatchId != null) navigator.geolocation.clearWatch(outdoorWatchId);
+  await releaseOutdoorWakeLock();
+  clearOutdoorTrackingUi();
+};
+
+window.selectOutdoorKind = function (kind) {
+  if (outdoorWatchId != null) return;
+  outdoorSelectedKind = kind;
+  document.querySelectorAll('.outdoor-type-btn').forEach((b) => {
+    b.classList.toggle('selected', b.dataset.kind === kind);
+  });
+  const go = document.getElementById('outdoorGoBtn');
+  if (go) go.disabled = false;
+};
+
+window.startOutdoorGps = function () {
+  if (!currentUser) return;
+  if (!outdoorSelectedKind || OUTDOOR_TYPES[outdoorSelectedKind] == null) {
+    showToast('Vyber typ aktivity (chůze / běh / kolo).');
+    return;
+  }
+  if (!navigator.geolocation) {
+    showToast('Prohlížeč nepodporuje GPS.');
+    return;
+  }
+
+  outdoorSession = {
+    kind: outdoorSelectedKind,
+    startAt: Date.now(),
+    lastSample: null,
+    distanceM: 0
+  };
+
+  document.getElementById('outdoorLivePanel').style.display = 'block';
+  document.getElementById('outdoorGoBtn').style.display = 'none';
+  document.getElementById('outdoorStopBtn').style.display = 'block';
+  updateOutdoorLiveDisplay();
+  stopOutdoorUiTick();
+  outdoorLiveTimer = setInterval(updateOutdoorLiveDisplay, 1000);
+
+  if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').then((l) => (outdoorWakeLock = l)).catch(() => {});
+  }
+
+  outdoorWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (!outdoorSession) return;
+      const { latitude, longitude, accuracy } = pos.coords;
+      if (accuracy > 55) return;
+      const now = Date.now();
+      const prev = outdoorSession.lastSample;
+      if (prev) {
+        const d = haversineMeters(prev.lat, prev.lng, latitude, longitude);
+        const dt = (now - prev.t) / 1000;
+        if (dt > 0 && dt < 120 && d < 400) {
+          const speed = d / dt;
+          const maxSpeed = outdoorSession.kind === 'bike' ? 22 : outdoorSession.kind === 'run' ? 8 : 3.5;
+          if (speed <= maxSpeed) outdoorSession.distanceM += d;
+        }
+      }
+      outdoorSession.lastSample = { lat: latitude, lng: longitude, t: now };
+      updateOutdoorLiveDisplay();
+    },
+    (err) => {
+      showToast('GPS: ' + (err.message || 'chyba'));
+    },
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 }
+  );
+};
+
+window.finishOutdoorSession = async function () {
+  if (!outdoorSession) return;
+  if (outdoorWatchId != null) navigator.geolocation.clearWatch(outdoorWatchId);
+  outdoorWatchId = null;
+  await releaseOutdoorWakeLock();
+  stopOutdoorUiTick();
+
+  const km = outdoorSession.distanceM / 1000;
+  const min = Math.max(1, Math.round((Date.now() - outdoorSession.startAt) / 60000));
+  const kind = outdoorSession.kind;
+  const kcal = Math.round(km * (OUTDOOR_TYPES[kind]?.kcalPerKm || 35));
+
+  if (km < 0.05 && Date.now() - outdoorSession.startAt < 90000) {
+    showToast('Trasa je moc krátká — neukládám.');
+    clearOutdoorTrackingUi();
+    return;
+  }
+
+  try {
+    await saveOutdoorSession({ kind, km, min, kcal });
+    showToast(`Uloženo: ${(Math.round(km * 100) / 100).toFixed(2)} km · ${kcal} kcal`);
+    renderOutdoorHistory();
+  } catch (e) {
+    showToast('Chyba ukládání: ' + e.message);
+  }
+  clearOutdoorTrackingUi();
+};
+
+function renderOutdoorHistory() {
+  const box = document.getElementById('outdoorHistoryList');
+  if (!box) return;
+  const h = currentUser?.outdoorHistory;
+  if (!h || !h.length) {
+    box.innerHTML = '<div class="outdoor-history-empty">Zatím žádná venkovní aktivita.</div>';
+    return;
+  }
+  box.innerHTML = h
+    .map(
+      (e) => `
+    <div class="outdoor-history-row">
+      <span class="oh-icon">${OUTDOOR_TYPES[e.kind]?.icon || '🌳'}</span>
+      <span class="oh-main">${e.label} · ${e.km} km</span>
+      <span class="oh-meta">${e.min} min · ${e.kcal} kcal</span>
+    </div>`
+    )
+    .join('');
+}
+
+window.setTrainingMode = function (mode) {
+  if (mode === 'home' && outdoorWatchId != null) {
+    if (!confirm('Venku běží sledování GPS. Přepnout bez uložení?')) return;
+    window.cancelOutdoorWithoutSave();
+  }
+  if (mode === 'outdoor' && isRunning) closeTimer();
+
+  trainingMode = mode;
+  try {
+    localStorage.setItem('schoolfit_training_mode', mode);
+  } catch (e) {}
+
+  const homeB = document.getElementById('modeHome');
+  const outB = document.getElementById('modeOutdoor');
+  const blockH = document.getElementById('blockHomeTraining');
+  const blockO = document.getElementById('blockOutdoorTraining');
+  const startBtn = document.getElementById('startBtn');
+
+  if (mode === 'outdoor') {
+    if (homeB) homeB.classList.remove('active');
+    if (outB) outB.classList.add('active');
+    if (blockH) blockH.style.display = 'none';
+    if (blockO) blockO.style.display = 'block';
+    if (startBtn) startBtn.style.display = 'none';
+    renderOutdoorHistory();
+  } else {
+    if (homeB) homeB.classList.add('active');
+    if (outB) outB.classList.remove('active');
+    if (blockH) blockH.style.display = 'block';
+    if (blockO) blockO.style.display = 'none';
+    if (startBtn) startBtn.style.display = 'block';
+  }
+};
+
+function applyStoredTrainingMode() {
+  try {
+    const m = localStorage.getItem('schoolfit_training_mode');
+    if (m === 'outdoor') setTrainingMode('outdoor');
+    else setTrainingMode('home');
+  } catch (e) {
+    setTrainingMode('home');
+  }
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+window.promptInstallPwa = async function () {
+  if (!deferredInstallPrompt) {
+    showToast('Instalace: použij menu prohlížeče „Přidat na plochu“, nebo Safari → Sdílet → Přidat.');
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  const { outcome } = await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  showToast(outcome === 'accepted' ? 'Instalace spuštěna.' : 'Zrušeno.');
+};
+
 // ═══════════════════════════════════════════
 // LEADERBOARD
 // ═══════════════════════════════════════════
@@ -236,12 +532,18 @@ async function loadLeaderboard() {
       const streak = u.stats?.streak || 0;
       const nickLabel = u.nickname ? '@' + u.nickname : (u.displayName || '?');
       const comment = getFunComment(i, w, streak, nickLabel);
+      const okm = u.stats?.outdoorKm;
+      const kmLine =
+        okm > 0
+          ? `<div class="lb-outdoor">🌳 ${typeof okm === 'number' ? okm.toFixed(1) : okm} km venku</div>`
+          : '';
       board.innerHTML += `
         <div class="lb-row ${isMe ? 'lb-me' : ''}">
           <div class="lb-rank">${['🥇','🥈','🥉'][i] || '#'+(i+1)}</div>
           <div class="lb-info">
             <div class="lb-name">${nickLabel} ${isMe ? '<span class="lb-you">TY</span>' : ''}</div>
             <div class="lb-comment">${comment}</div>
+            ${kmLine}
           </div>
           <div class="lb-stats">
             <div class="lb-stat-num">${w}</div>
@@ -293,6 +595,12 @@ function showApp() {
   document.getElementById('appScreen').style.display = 'block';
   document.getElementById('userGreet').textContent = currentUser.displayName;
 
+  const letter = (currentUser.displayName || '?')[0].toUpperCase();
+  const av = document.getElementById('userAvatar');
+  const pav = document.getElementById('profileAvatarLetter');
+  if (av) av.textContent = letter;
+  if (pav) pav.textContent = letter;
+
   const days = ['Neděle','Pondělí','Úterý','Středa','Čtvrtek','Pátek','Sobota'];
   const months = ['ledna','února','března','dubna','května','června','července','srpna','září','října','listopadu','prosince'];
   const now = new Date();
@@ -302,19 +610,26 @@ function showApp() {
   document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
   renderExercises();
   renderWeek();
+  applyStoredTrainingMode();
+  renderOutdoorHistory();
   switchPage('dnes', document.querySelector('.nav-item'));
 }
 
 function updateProfileStats() {
   const s = currentUser.stats || {};
+  const okm = s.outdoorKm || 0;
   document.getElementById('statCalories').textContent = s.totalKcal || 0;
   document.getElementById('statMin').textContent = s.totalMinutes || 0;
   document.getElementById('statDone').textContent = s.totalWorkouts || 0;
+  const so = document.getElementById('statOutdoorKm');
+  if (so) so.textContent = okm >= 10 ? okm.toFixed(1) : (Math.round(okm * 10) / 10).toString();
   document.getElementById('streakNum').textContent = s.streak || 0;
   document.getElementById('profileWorkouts').textContent = s.totalWorkouts || 0;
   document.getElementById('profileKcal').textContent = s.totalKcal || 0;
   document.getElementById('profileStreak').textContent = s.streak || 0;
   document.getElementById('profileMin').textContent = s.totalMinutes || 0;
+  const pok = document.getElementById('profileOutdoorKm');
+  if (pok) pok.textContent = okm >= 10 ? okm.toFixed(1) : (Math.round(okm * 10) / 10).toString();
   document.getElementById('profileNick').textContent = '@' + currentUser.uid;
   document.getElementById('profileName').textContent = currentUser.displayName;
 }
@@ -334,6 +649,10 @@ function showToast(msg) {
 }
 
 window.switchPage = function(pageId, navEl) {
+  if (pageId !== 'dnes' && outdoorWatchId != null) {
+    if (!confirm('Venku běží GPS. Opravdu přejít pryč bez uložení aktivity?')) return;
+    window.cancelOutdoorWithoutSave();
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + pageId).classList.add('active');
@@ -566,6 +885,11 @@ function renderWeek() {
 // ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+registerServiceWorker();
 tryAutoLogin();
 </script>
 
@@ -790,6 +1114,68 @@ tryAutoLogin();
   .stat-item { background:var(--surface); padding:1rem; text-align:center; }
   .stat-num { font-family:'Bebas Neue',sans-serif; font-size:2.2rem; color:var(--accent); line-height:1; }
   .stat-label { font-size:0.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-top:3px; }
+  .stats-row.stats-row-4 { grid-template-columns:repeat(2,1fr); }
+  @media (min-width:480px) {
+    .stats-row.stats-row-4 { grid-template-columns:repeat(4,1fr); }
+  }
+  .stats-row-4 .stat-num { font-size:1.85rem; }
+  .stats-row-4 .stat-item { padding:0.75rem 0.5rem; }
+
+  .mode-switch-wrap { padding:0 1.5rem 1rem; }
+  .mode-switch {
+    display:flex; background:var(--surface); border:1px solid var(--border);
+    border-radius:100px; padding:4px; gap:4px;
+  }
+  .mode-pill {
+    flex:1; border:none; border-radius:100px; padding:10px 12px;
+    font-family:'DM Sans',sans-serif; font-size:0.78rem; font-weight:600;
+    letter-spacing:1px; text-transform:uppercase; cursor:pointer;
+    background:transparent; color:var(--muted); transition:all 0.2s;
+  }
+  .mode-pill.active { background:var(--accent); color:#000; }
+
+  .outdoor-lead {
+    font-size:0.78rem; color:var(--muted); line-height:1.45;
+    padding:0 1.5rem 0.8rem;
+  }
+  .outdoor-type-grid {
+    display:grid; grid-template-columns:repeat(3,1fr); gap:0.6rem;
+    padding:0 1.5rem 1rem;
+  }
+  .outdoor-type-btn {
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    padding:12px 8px; border-radius:12px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text); cursor:pointer;
+    font-size:0.72rem; font-weight:600; letter-spacing:1px;
+    text-transform:uppercase; transition:all 0.2s;
+  }
+  .outdoor-type-btn .ot-ic { font-size:1.6rem; }
+  .outdoor-type-btn.selected { border-color:var(--accent); background:#1a1e00; color:var(--accent); }
+  .outdoor-go { margin:0 1.5rem 1rem; width:calc(100% - 3rem); box-sizing:border-box; }
+  .outdoor-go:disabled { opacity:0.45; cursor:not-allowed; }
+  .outdoor-live {
+    margin:0 1.5rem 1rem; padding:1rem; background:var(--surface);
+    border:1px solid var(--border); border-radius:14px;
+  }
+  .outdoor-live-grid {
+    display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center;
+  }
+  .olv-val { font-family:'Bebas Neue',sans-serif; font-size:2rem; color:var(--accent); line-height:1; }
+  .olv-lab { font-size:0.58rem; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-top:4px; }
+  .outdoor-live-hint { font-size:0.68rem; color:var(--muted); margin-top:0.75rem; line-height:1.35; }
+  .outdoor-stop { margin:0 1.5rem 1rem; width:calc(100% - 3rem); box-sizing:border-box; }
+  .outdoor-history-list { padding:0 1.5rem 1.2rem; }
+  .outdoor-history-empty { color:var(--muted); font-size:0.78rem; text-align:center; padding:1rem; }
+  .outdoor-history-row {
+    display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center;
+    padding:10px 12px; background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; margin-bottom:6px; font-size:0.78rem;
+  }
+  .oh-icon { font-size:1.2rem; }
+  .oh-main { font-weight:600; }
+  .oh-meta { color:var(--muted); font-size:0.68rem; text-align:right; }
+
+  .lb-outdoor { font-size:0.68rem; color:#7eb8ff; margin-top:4px; letter-spacing:0.5px; }
 
   /* SECTION HEADER */
   .section-header {
@@ -1158,7 +1544,7 @@ tryAutoLogin();
       </div>
     </div>
 
-    <div class="stats-row">
+    <div class="stats-row stats-row-4">
       <div class="stat-item">
         <div class="stat-num" id="statCalories">0</div>
         <div class="stat-label">kcal celkem</div>
@@ -1171,8 +1557,20 @@ tryAutoLogin();
         <div class="stat-num" id="statDone">0</div>
         <div class="stat-label">tréninků</div>
       </div>
+      <div class="stat-item">
+        <div class="stat-num" id="statOutdoorKm">0</div>
+        <div class="stat-label">km venku</div>
+      </div>
     </div>
 
+    <div class="mode-switch-wrap">
+      <div class="mode-switch" role="tablist" aria-label="Režim tréninku">
+        <button type="button" class="mode-pill active" id="modeHome" onclick="setTrainingMode('home')">🏠 Doma</button>
+        <button type="button" class="mode-pill" id="modeOutdoor" onclick="setTrainingMode('outdoor')">🌳 Venku</button>
+      </div>
+    </div>
+
+    <div id="blockHomeTraining">
     <div class="section-header"><div class="section-title">Programy</div></div>
     <div class="programs-scroll">
       <div class="program-card active" onclick="selectProgram(this,0)">
@@ -1222,6 +1620,29 @@ tryAutoLogin();
     </div>
 
     <button class="start-btn" id="startBtn" onclick="startWorkout()">ZAČÍT TRÉNINK</button>
+    </div><!-- blockHomeTraining -->
+
+    <div id="blockOutdoorTraining" style="display:none">
+      <div class="section-header"><div class="section-title">Venkovní pohyb</div></div>
+      <p class="outdoor-lead">Vyber aktivitu, povol přístup k poloze a po skončení klepni na <strong>Uložit</strong>. Odhad kalorií je orientační (cca 70&nbsp;kg).</p>
+      <div class="outdoor-type-grid">
+        <button type="button" class="outdoor-type-btn" data-kind="walk" onclick="selectOutdoorKind('walk')"><span class="ot-ic">🚶</span><span>Chůze</span></button>
+        <button type="button" class="outdoor-type-btn" data-kind="run" onclick="selectOutdoorKind('run')"><span class="ot-ic">🏃</span><span>Běh</span></button>
+        <button type="button" class="outdoor-type-btn" data-kind="bike" onclick="selectOutdoorKind('bike')"><span class="ot-ic">🚴</span><span>Kolo</span></button>
+      </div>
+      <button type="button" class="start-btn outdoor-go" id="outdoorGoBtn" onclick="startOutdoorGps()" disabled>ZAHÁJIT SLEDOVÁNÍ (GPS)</button>
+      <div class="outdoor-live" id="outdoorLivePanel" style="display:none">
+        <div class="outdoor-live-grid">
+          <div><div class="olv-val" id="outdoorKm">0.00</div><div class="olv-lab">km</div></div>
+          <div><div class="olv-val" id="outdoorMin">0</div><div class="olv-lab">min</div></div>
+          <div><div class="olv-val" id="outdoorKcalEst">0</div><div class="olv-lab">kcal ~</div></div>
+        </div>
+        <p class="outdoor-live-hint">Displej může zůstat zapnutý (Wake Lock). Drž telefon tak, aby měl výhled na oblohu.</p>
+      </div>
+      <button type="button" class="start-btn running outdoor-stop" id="outdoorStopBtn" style="display:none" onclick="finishOutdoorSession()">UKONČIT A ULOŽIT</button>
+      <div class="section-header" style="margin-top:1.2rem"><div class="section-title">Historie venku</div></div>
+      <div id="outdoorHistoryList" class="outdoor-history-list"></div>
+    </div>
 
     <div class="week-section">
       <div class="section-header" style="padding:0;margin-bottom:0.8rem">
@@ -1284,6 +1705,21 @@ tryAutoLogin();
           <div class="profile-stat-num" id="profileMin">0</div>
           <div class="profile-stat-label">minut trénováno</div>
         </div>
+        <div class="profile-stat-card">
+          <div class="profile-stat-num" id="profileOutdoorKm">0</div>
+          <div class="profile-stat-label">km venku (GPS)</div>
+        </div>
+      </div>
+
+      <div class="settings-section-label">Aplikace</div>
+      <div class="settings-row">
+        <div class="settings-item" onclick="promptInstallPwa()">
+          <div>
+            <div class="settings-item-label">Nainstalovat na mobil</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-top:2px">Android: menu → Přidat na plochu. iPhone: Sdílet → Přidat na plochu.</div>
+          </div>
+          <span class="settings-item-value">›</span>
+        </div>
       </div>
 
       <div class="settings-section-label">Soukromí</div>
@@ -1291,7 +1727,7 @@ tryAutoLogin();
         <div class="settings-item">
           <div>
             <div class="settings-item-label">Sdílet statistiky v žebříčku</div>
-            <div style="font-size:0.72rem;color:var(--muted);margin-top:2px">Ostatní uvidí tvoje tréninky a kalorie</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-top:2px">Ostatní uvidí tréninky, kalorie a případně km venku</div>
           </div>
           <div class="toggle on" id="shareToggle" onclick="toggleShare()"></div>
         </div>
@@ -1365,20 +1801,6 @@ function updatePinDots(inputId, dotPrefix) {
     d.className = 'pin-dot' + (i < val.length ? ' filled' : '');
   }
 }
-
-// Avatar letter update
-const origShowApp = window.showApp;
-// Patch avatar after login
-const patchAvatar = () => {
-  if (!window.currentUser) return;
-  const letter = (window.currentUser.displayName || '?')[0].toUpperCase();
-  const av = document.getElementById('userAvatar');
-  const pav = document.getElementById('profileAvatarLetter');
-  if (av) av.textContent = letter;
-  if (pav) pav.textContent = letter;
-};
-// MutationObserver to patch avatar when appScreen becomes visible
-new MutationObserver(() => patchAvatar()).observe(document.getElementById('appScreen'), {attributes:true, attributeFilter:['style']});
 </script>
 
 </body>
