@@ -347,46 +347,73 @@ window.showAuthScreen = showAuthScreen;
 // ═══════════════════════════════════════════
 // PROGRAMS & EXERCISES
 // ═══════════════════════════════════════════
+// Programy: revize pro domácí cvičení bez vybavení — šetrné ke kloubům, české názvy,
+// bez burpees / skoků / box jumpů; místo HIIT „core a záda“ (viz koncepce v projektu).
 const programs = [
-  { name:"SILOVÝ TRÉNINK", meta:"25 min · 4 cvičení", kcal:120, min:25,
+  { name:"CELOTĚLOVÝ TRÉNINK", meta:"~24 min · 5 cvičení", kcal:95, min:24,
     exercises:[
-      {icon:"💪",name:"Kliky",detail:"3 × 15 opakování",restSec:60,workSec:40},
-      {icon:"🦵",name:"Dřepy",detail:"3 × 20 opakování",restSec:60,workSec:50},
-      {icon:"🏋️",name:"Výpady",detail:"3 × 12 / nohu",restSec:60,workSec:45},
-      {icon:"⚡",name:"Plank",detail:"3 × 45 sekund",restSec:45,workSec:45},
+      { icon:"💪", name:"Kliky", detail:"3 × 8–10 opakování", restSec:60, workSec:40,
+        tip:"Začátečníci: kliky na kolenou nebo od stěny. Lokty u těla, pánev neutáčej dopředu." },
+      { icon:"🦵", name:"Dřepy", detail:"3 × 10–12 opakování", restSec:55, workSec:45,
+        tip:"Kolena směřují přes prsty, záda vzpřímená. Nedělej příliš hluboký dřep, pokud bolí kolena." },
+      { icon:"🌉", name:"Můstek (glute bridge)", detail:"3 × 12 zvednutí pánve", restSec:45, workSec:40,
+        tip:"Na zádech, chodidla na zemi. Zvedej pánev stlačením hýždí, ne přetěžuj krk." },
+      { icon:"🚶", name:"Výpady vpřed", detail:"3 × 8 opakování / noha", restSec:60, workSec:40,
+        tip:"Přední koleno nad kotníkem, zadní noha může být na špičce. Krátký krok = šetrnější." },
+      { icon:"⚡", name:"Plank", detail:"3 × 20–30 sekund", restSec:45, workSec:30,
+        tip:"Tělo v jedné rovině. Zkrácený plank z kolen je v pořádku." },
     ]},
-  { name:"KARDIO TRÉNINK", meta:"20 min · 6 cvičení", kcal:180, min:20,
+  { name:"KARDIO (JEMNÉ)", meta:"~18 min · 5 cvičení", kcal:110, min:18,
     exercises:[
-      {icon:"🏃",name:"Jumping jacks",detail:"3 × 30 opakování",restSec:30,workSec:35},
-      {icon:"🦘",name:"Burpees",detail:"3 × 10 opakování",restSec:45,workSec:40},
-      {icon:"⬆️",name:"High knees",detail:"3 × 30 sekund",restSec:30,workSec:30},
-      {icon:"🏃",name:"Mountain climbers",detail:"3 × 20 / nohu",restSec:30,workSec:35},
-      {icon:"🦵",name:"Squat jumps",detail:"3 × 15 opakování",restSec:45,workSec:30},
-      {icon:"🤸",name:"Skipping",detail:"3 × 30 sekund",restSec:30,workSec:30},
+      { icon:"🚶", name:"Pochod na místě", detail:"3 × 45 sekund", restSec:25, workSec:45,
+        tip:"Klidné tempo, mírně vyšší kolena — žádný sprint." },
+      { icon:"🤸", name:"Hampelmann (lehký)", detail:"3 × 20 opakování", restSec:30, workSec:35,
+        tip:"Bez výskoku; pokud bolí ramena, jen nohy a ruce do stran pomalu." },
+      { icon:"🧗", name:"Horolezec pomalu", detail:"3 × 20 sekund", restSec:30, workSec:35,
+        tip:"V opoře prkna střídavě přitahuj kolena k hrudi, bez trhání." },
+      { icon:"↔️", name:"Úkroky do strany", detail:"3 × 10 úkroků / směr", restSec:30, workSec:35,
+        tip:"Jedna noha vykročí, druhá následuje. Kolena měkká, nárazy nejsou potřeba." },
+      { icon:"🦵", name:"Podřep bez výskoku", detail:"3 × 12 opakování", restSec:35, workSec:40,
+        tip:"Klasický dřep nahoru–dolů bez odrazu od země." },
     ]},
-  { name:"STREČINK", meta:"15 min · 5 cvičení", kcal:60, min:15,
+  { name:"PROTAŽENÍ A MOBILITA", meta:"15 min · 5 cvičení", kcal:45, min:15,
     exercises:[
-      {icon:"🧘",name:"Předklon",detail:"3 × 30 sekund",restSec:20,workSec:30},
-      {icon:"🦋",name:"Motýlek",detail:"2 × 45 sekund",restSec:20,workSec:45},
-      {icon:"🐱",name:"Kočka/kráva",detail:"2 × 10 opakování",restSec:20,workSec:35},
-      {icon:"🌿",name:"Pigeon pose",detail:"2 × 45 sekund / strana",restSec:20,workSec:45},
-      {icon:"🔄",name:"Rotace trupu",detail:"2 × 15 / strana",restSec:20,workSec:35},
+      { icon:"🧘", name:"Předklon vsedě", detail:"2 × 40 sekund", restSec:15, workSec:40,
+        tip:"Nohy pokrčené nebo natažené podle pohodlí. Nevytváčej páteř silou." },
+      { icon:"🦋", name:"Motýlek (vsedě)", detail:"2 × 45 sekund", restSec:15, workSec:45,
+        tip:"Chodidla u sebe, kolena volně k zemi. Jemný tlak stehen dolů." },
+      { icon:"🐱", name:"Kočka a kráva", detail:"2 × 10 pomalých kol", restSec:15, workSec:35,
+        tip:"Na čtyřech: střídavě prohnutí a zakulacení zad, pomalu a bez skoků." },
+      { icon:"🔄", name:"Rotace trupu vsedě", detail:"2 × 8 doteků / strana", restSec:15, workSec:35,
+        tip:"Rotace z hrudníku, ne krkem. Drž pánev klidně." },
+      { icon:"🕊️", name:"Holubí pozice (jemně)", detail:"2 × 30 sekund / strana", restSec:20, workSec:30,
+        tip:"Pokud bolí koleno nebo kyčel, přeskoč nebo jen lehké protahnutí v leže na zádech." },
     ]},
-  { name:"HIIT TRÉNINK", meta:"30 min · 5 cvičení", kcal:250, min:30,
+  { name:"CORE A ZÁDA", meta:"~22 min · 5 cvičení", kcal:75, min:22,
     exercises:[
-      {icon:"🔥",name:"Sprint na místě",detail:"5 × 20 sekund",restSec:10,workSec:20},
-      {icon:"💥",name:"Explosive kliky",detail:"4 × 10 opakování",restSec:20,workSec:30},
-      {icon:"⚡",name:"Jump squats",detail:"4 × 15 opakování",restSec:20,workSec:30},
-      {icon:"🦘",name:"Burpees",detail:"4 × 8 opakování",restSec:20,workSec:35},
-      {icon:"🏃",name:"Mountain climbers",detail:"4 × 30 sekund",restSec:10,workSec:30},
+      { icon:"⚡", name:"Plank na předloktích", detail:"3 × 20 sekund", restSec:40, workSec:25,
+        tip:"Varianta z kolen je v pořádku. Nepropadej se v bedrech." },
+      { icon:"🦸", name:"Superman (nadhřmot)", detail:"3 × 8 zvednutí", restSec:35, workSec:30,
+        tip:"Leh na břiše, zvedni hrudník a paže málo nad zem — bez prudkých švihů." },
+      { icon:"🐞", name:"Mrtvý brouk", detail:"3 × 8 / strana (pomalu)", restSec:35, workSec:35,
+        tip:"Bedra přitisknutá k zemi, střídavě protáhni protilehlou paži a nohu." },
+      { icon:"📐", name:"Boční plank", detail:"2 × 15 sekund / strana", restSec:40, workSec:30,
+        tip:"Klidně z kolen. Boky v jedné rovině s ramenem." },
+      { icon:"🌉", name:"Můstek s výdrží", detail:"3 × 10 zvednutí + 10 s výdrž nahoře", restSec:40, workSec:45,
+        tip:"Zaměř se na hýždě, ne na přetáčení krku." },
     ]},
-  { name:"TRÉNINK NOH", meta:"25 min · 5 cvičení", kcal:150, min:25,
+  { name:"NOHY A HÝŽDĚ", meta:"~25 min · 5 cvičení", kcal:115, min:25,
     exercises:[
-      {icon:"🦵",name:"Dřepy",detail:"4 × 20 opakování",restSec:60,workSec:45},
-      {icon:"🚶",name:"Výpady chůzí",detail:"3 × 12 / nohu",restSec:60,workSec:40},
-      {icon:"🔄",name:"Rumunský mrtvý tah",detail:"3 × 15 opakování",restSec:60,workSec:45},
-      {icon:"🦘",name:"Box jumps",detail:"3 × 10 opakování",restSec:45,workSec:35},
-      {icon:"⬆️",name:"Výpony na lýtka",detail:"3 × 25 opakování",restSec:45,workSec:30},
+      { icon:"🦵", name:"Dřep s krátkou výdrží", detail:"3 × 8 + 5 s dole", restSec:55, workSec:45,
+        tip:"Hloubka jen do pohodlí kolene. Paže můžeš mít před sebou pro rovnováhu." },
+      { icon:"↩️", name:"Výpady vzad", detail:"3 × 8 / noha", restSec:55, workSec:40,
+        tip:"Krok vzad je obvykle šetrnější ke kolenům než výpad dopředu." },
+      { icon:"🦶", name:"Můstek jedné nohy", detail:"3 × 6 / noha", restSec:45, workSec:40,
+        tip:"Obě chodidla na zemi = snadnější varianta stejného pohybu." },
+      { icon:"🪑", name:"Sed u zdi", detail:"3 × 20–30 sekund", restSec:50, workSec:35,
+        tip:"Záda u zdi, kolena cca nad kotníky. Zkrát čas, když hoří stehna." },
+      { icon:"⬆️", name:"Výpony na lýtka", detail:"3 × 15 opakování", restSec:40, workSec:30,
+        tip:"U opěrky židle pro stabilitu. Plný rozsah nahoru." },
     ]},
 ];
 
@@ -417,6 +444,7 @@ function renderExercises() {
         <div class="exercise-info">
           <div class="exercise-name">${ex.name}</div>
           <div class="exercise-detail">${ex.detail}</div>
+          ${ex.tip ? `<div class="exercise-tip">${ex.tip}</div>` : ''}
         </div>
         <div class="exercise-check">${done?'✓':''}</div>
       </div>`;
@@ -815,6 +843,10 @@ tryAutoLogin();
   .exercise-info { flex:1; }
   .exercise-name { font-weight:600; font-size:0.88rem; margin-bottom:2px; }
   .exercise-detail { font-size:0.7rem; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+  .exercise-tip {
+    font-size:0.72rem; color:#7eb8ff; line-height:1.4; margin-top:6px;
+    letter-spacing:0.2px; text-transform:none; font-weight:400;
+  }
   .exercise-check {
     width:26px; height:26px; border:2px solid var(--border);
     border-radius:7px; display:flex; align-items:center; justify-content:center;
@@ -1145,32 +1177,32 @@ tryAutoLogin();
     <div class="programs-scroll">
       <div class="program-card active" onclick="selectProgram(this,0)">
         <span class="program-icon">💪</span>
-        <div class="program-name">Síla</div>
-        <div class="program-meta">4 cvičení · 25 min</div>
+        <div class="program-name">Celé tělo</div>
+        <div class="program-meta">5 cvičení · ~24 min</div>
         <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div></div>
       </div>
       <div class="program-card" onclick="selectProgram(this,1)">
         <span class="program-icon">🏃</span>
-        <div class="program-name">Kardio</div>
-        <div class="program-meta">6 cvičení · 20 min</div>
+        <div class="program-name">Kardio jemné</div>
+        <div class="program-meta">5 cvičení · ~18 min</div>
         <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
       </div>
       <div class="program-card" onclick="selectProgram(this,2)">
         <span class="program-icon">🧘</span>
-        <div class="program-name">Strečink</div>
+        <div class="program-name">Protažení</div>
         <div class="program-meta">5 cvičení · 15 min</div>
         <div class="program-difficulty"><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
       </div>
       <div class="program-card" onclick="selectProgram(this,3)">
-        <span class="program-icon">🔥</span>
-        <div class="program-name">HIIT</div>
-        <div class="program-meta">5 cvičení · 30 min</div>
-        <div class="program-difficulty"><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div><div class="dot red"></div></div>
+        <span class="program-icon">🎯</span>
+        <div class="program-name">Core &amp; záda</div>
+        <div class="program-meta">5 cvičení · ~22 min</div>
+        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div></div>
       </div>
       <div class="program-card" onclick="selectProgram(this,4)">
         <span class="program-icon">🦵</span>
-        <div class="program-name">Nohy</div>
-        <div class="program-meta">5 cvičení · 25 min</div>
+        <div class="program-name">Nohy &amp; hýždě</div>
+        <div class="program-meta">5 cvičení · ~25 min</div>
         <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div></div>
       </div>
     </div>
@@ -1178,13 +1210,13 @@ tryAutoLogin();
     <div class="workout-section">
       <div class="workout-card">
         <div class="workout-header">
-          <div class="workout-header-title" id="workoutTitle">SILOVÝ TRÉNINK</div>
-          <div class="workout-header-meta" id="workoutMeta">25 min · 4 cvičení</div>
+          <div class="workout-header-title" id="workoutTitle">CELOTĚLOVÝ TRÉNINK</div>
+          <div class="workout-header-meta" id="workoutMeta">~24 min · 5 cvičení</div>
         </div>
         <div class="exercise-list" id="exerciseList"></div>
         <div class="progress-bar-wrap">
           <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-          <div class="progress-label" id="progressLabel">0 / 4</div>
+          <div class="progress-label" id="progressLabel">0 / 5</div>
         </div>
       </div>
     </div>
@@ -1213,12 +1245,12 @@ tryAutoLogin();
   <div class="page" id="page-plan">
     <div class="plan-page">
       <div class="page-title">TÝDENNÍ PLÁN</div>
-      <div class="plan-card"><div class="plan-day-badge">PO</div><div class="plan-card-info"><div class="plan-card-name">Silový trénink</div><div class="plan-card-meta">4 cvičení · 25 min</div></div><div class="plan-card-status done">Hotovo</div></div>
-      <div class="plan-card"><div class="plan-day-badge">ÚT</div><div class="plan-card-info"><div class="plan-card-name">Kardio</div><div class="plan-card-meta">6 cvičení · 20 min</div></div><div class="plan-card-status done">Hotovo</div></div>
-      <div class="plan-card today-plan"><div class="plan-day-badge active">ST</div><div class="plan-card-info"><div class="plan-card-name">Silový trénink</div><div class="plan-card-meta">4 cvičení · 25 min</div></div><div class="plan-card-status active-status">Dnes</div></div>
-      <div class="plan-card"><div class="plan-day-badge">ČT</div><div class="plan-card-info"><div class="plan-card-name">HIIT</div><div class="plan-card-meta">5 cvičení · 30 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">PÁ</div><div class="plan-card-info"><div class="plan-card-name">Strečink</div><div class="plan-card-meta">5 cvičení · 15 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">SO</div><div class="plan-card-info"><div class="plan-card-name">Trénink nohou</div><div class="plan-card-meta">5 cvičení · 25 min</div></div><div class="plan-card-status">Plánováno</div></div>
+      <div class="plan-card"><div class="plan-day-badge">PO</div><div class="plan-card-info"><div class="plan-card-name">Celotělový trénink</div><div class="plan-card-meta">5 cvičení · ~24 min</div></div><div class="plan-card-status done">Hotovo</div></div>
+      <div class="plan-card"><div class="plan-day-badge">ÚT</div><div class="plan-card-info"><div class="plan-card-name">Kardio jemné</div><div class="plan-card-meta">5 cvičení · ~18 min</div></div><div class="plan-card-status done">Hotovo</div></div>
+      <div class="plan-card today-plan"><div class="plan-day-badge active">ST</div><div class="plan-card-info"><div class="plan-card-name">Celotělový trénink</div><div class="plan-card-meta">5 cvičení · ~24 min</div></div><div class="plan-card-status active-status">Dnes</div></div>
+      <div class="plan-card"><div class="plan-day-badge">ČT</div><div class="plan-card-info"><div class="plan-card-name">Core a záda</div><div class="plan-card-meta">5 cvičení · ~22 min</div></div><div class="plan-card-status">Plánováno</div></div>
+      <div class="plan-card"><div class="plan-day-badge">PÁ</div><div class="plan-card-info"><div class="plan-card-name">Protažení a mobilita</div><div class="plan-card-meta">5 cvičení · 15 min</div></div><div class="plan-card-status">Plánováno</div></div>
+      <div class="plan-card"><div class="plan-day-badge">SO</div><div class="plan-card-info"><div class="plan-card-name">Nohy a hýždě</div><div class="plan-card-meta">5 cvičení · ~25 min</div></div><div class="plan-card-status">Plánováno</div></div>
       <div class="plan-card"><div class="plan-day-badge">NE</div><div class="plan-card-info"><div class="plan-card-name">Odpočinek</div><div class="plan-card-meta">Regenerace</div></div><div class="plan-card-status">Volno</div></div>
     </div>
   </div>
