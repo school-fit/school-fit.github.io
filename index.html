@@ -33,6 +33,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+/** Po–Ne (0 = pondělí), číslo = index programu, null = volno */
+const DEFAULT_WEEK_PLAN = [0, 1, 0, 3, 2, 4, null];
+
 // ═══════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════
@@ -100,7 +103,8 @@ window.registerUser = async function() {
       shareStats: true,
       createdAt: serverTimestamp(),
       stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null, outdoorKm: 0 },
-      outdoorHistory: []
+      outdoorHistory: [],
+      weekPlan: DEFAULT_WEEK_PLAN.slice()
     });
 
     showToast('Účet vytvořen! Přihlašuješ se...');
@@ -608,6 +612,9 @@ function showApp() {
 
   updateProfileStats();
   document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
+  if (ensureWeekPlan()) {
+    updateDoc(doc(db, 'users', currentUser.uid), { weekPlan: currentUser.weekPlan }).catch(() => {});
+  }
   renderExercises();
   renderWeek();
   applyStoredTrainingMode();
@@ -659,6 +666,7 @@ window.switchPage = function(pageId, navEl) {
   if (navEl) navEl.classList.add('active');
   window.scrollTo(0,0);
   if (pageId === 'statistiky') loadLeaderboard();
+  if (pageId === 'plan') renderPlan();
 };
 
 window.showAuthScreen = showAuthScreen;
@@ -669,7 +677,7 @@ window.showAuthScreen = showAuthScreen;
 // Programy: revize pro domácí cvičení bez vybavení — šetrné ke kloubům, české názvy,
 // bez burpees / skoků / box jumpů; místo HIIT „core a záda“ (viz koncepce v projektu).
 const programs = [
-  { name:"CELOTĚLOVÝ TRÉNINK", meta:"~24 min · 5 cvičení", kcal:95, min:24,
+  { name:"CELOTĚLOVÝ TRÉNINK", planLabel:"Celotělový trénink", meta:"~24 min · 5 cvičení", kcal:95, min:24,
     exercises:[
       { icon:"💪", name:"Kliky od země", detail:"3 × 8–10 opakování", restSec:60, workSec:40,
         tip:"Tělo v rovině jako při kliku. Začátečníci: ruce výš (lavice/stůl) nebo kolena na zemi. Lokty u těla." },
@@ -682,7 +690,7 @@ const programs = [
       { icon:"⚡", name:"Prkno (vzpěr na rukou)", detail:"3 × 20–30 sekund výdrž", restSec:45, workSec:30,
         tip:"Jen ruce a špičky nohou na zemi, tělo rovná jako prkno. Snadnější varianta: kolena na zemi." },
     ]},
-  { name:"KARDIO (JEMNÉ)", meta:"~18 min · 5 cvičení", kcal:110, min:18,
+  { name:"KARDIO (JEMNÉ)", planLabel:"Kardio jemné", meta:"~18 min · 5 cvičení", kcal:110, min:18,
     exercises:[
       { icon:"🚶", name:"Pochod na místě", detail:"3 × 45 sekund", restSec:25, workSec:45,
         tip:"Klidné tempo, mírně vyšší kolena — žádný sprint." },
@@ -695,7 +703,7 @@ const programs = [
       { icon:"🦵", name:"Dřep bez odskoku", detail:"3 × 12 opakování", restSec:35, workSec:40,
         tip:"Normální dřep dolů a nahoru — bez odrazu a bez výskoku od země." },
     ]},
-  { name:"PROTAŽENÍ A MOBILITA", meta:"15 min · 5 cvičení", kcal:45, min:15,
+  { name:"PROTAŽENÍ A MOBILITA", planLabel:"Protažení a mobilita", meta:"15 min · 5 cvičení", kcal:45, min:15,
     exercises:[
       { icon:"🧘", name:"Předklon vsedě na zemi", detail:"2 × 40 sekund", restSec:15, workSec:40,
         tip:"Nohy natažené nebo pokrčené — natahuj se rukama ke kotníkům. Netlač páteř silou." },
@@ -708,7 +716,7 @@ const programs = [
       { icon:"🕊️", name:"Protahnutí hýždě v leže", detail:"2 × 30 sekund / strana", restSec:20, workSec:30,
         tip:"Leh na zádech, jednu kotník přes druhé stehno, přitáhni stehno k hrudi. Bolí koleno? Přeskoč nebo jen jemné přitažení natažené nohy." },
     ]},
-  { name:"CORE A ZÁDA", meta:"~22 min · 5 cvičení", kcal:75, min:22,
+  { name:"CORE A ZÁDA", planLabel:"Core a záda", meta:"~22 min · 5 cvičení", kcal:75, min:22,
     exercises:[
       { icon:"⚡", name:"Prkno na loktech", detail:"3 × 20 sekund výdrž", restSec:40, workSec:25,
         tip:"Na předloktích a špičkách (nebo kolen), tělo rovné. Nepropadej bedry k zemi." },
@@ -721,7 +729,7 @@ const programs = [
       { icon:"🌉", name:"Zvedání pánve + krátká výdrž", detail:"3 × 10 zvednutí, pak 10 s nahoře", restSec:40, workSec:45,
         tip:"Jako u celotělového můstku: na zádech zvedej pánev a nahoře chvíli drž." },
     ]},
-  { name:"NOHY A HÝŽDĚ", meta:"~25 min · 5 cvičení", kcal:115, min:25,
+  { name:"NOHY A HÝŽDĚ", planLabel:"Nohy a hýždě", meta:"~25 min · 5 cvičení", kcal:115, min:25,
     exercises:[
       { icon:"🦵", name:"Dřep a chvilku držet dole", detail:"3 × 8 opakování + 5 s ve spodní poloze", restSec:55, workSec:45,
         tip:"Dřep jen tak hluboko, aby tě nebolela kolena. Paže vpřed pomůžou s rovnováhou." },
@@ -735,6 +743,80 @@ const programs = [
         tip:"Stoj rovně, zvedej paty co nejvýš (lýtka pracují). U židle pro jistotu." },
     ]},
 ];
+
+// ═══════════════════════════════════════════
+// TÝDENNÍ PLÁN (Po–Ne, index 0 = pondělí)
+// ═══════════════════════════════════════════
+const PLAN_DAY_BADGES = ['PO', 'ÚT', 'ST', 'ČT', 'PÁ', 'SO', 'NE'];
+const PLAN_TYPE_CYCLE = [0, 1, 2, 3, 4, null];
+
+function weekPlanTodayIndex() {
+  const d = new Date().getDay();
+  return d === 0 ? 6 : d - 1;
+}
+
+function ensureWeekPlan() {
+  if (!currentUser) return false;
+  if (!Array.isArray(currentUser.weekPlan) || currentUser.weekPlan.length !== 7) {
+    currentUser.weekPlan = DEFAULT_WEEK_PLAN.slice();
+    return true;
+  }
+  return false;
+}
+
+function renderPlan() {
+  const root = document.getElementById('planWeekList');
+  if (!root || !currentUser) return;
+  ensureWeekPlan();
+  const todayI = weekPlanTodayIndex();
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const pIdx = currentUser.weekPlan[i];
+    const isToday = i === todayI;
+    let name, meta, statusClass, statusText;
+    if (pIdx == null) {
+      name = 'Odpočinek';
+      meta = 'Regenerace';
+      statusClass = 'plan-card-status rest';
+      statusText = 'Volno';
+    } else {
+      const prog = programs[pIdx];
+      name = prog ? prog.planLabel : '—';
+      meta = prog ? prog.meta : '';
+      statusClass = isToday ? 'plan-card-status active-status' : 'plan-card-status';
+      statusText = isToday ? 'Dnes' : 'V plánu';
+    }
+    const cardClass = 'plan-card' + (isToday ? ' today-plan' : '') + ' plan-card-editable';
+    const badgeClass = 'plan-day-badge' + (isToday ? ' active' : '');
+    html += `
+      <div class="${cardClass}" role="button" tabindex="0" onclick="cyclePlanDay(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cyclePlanDay(${i});}">
+        <div class="${badgeClass}">${PLAN_DAY_BADGES[i]}</div>
+        <div class="plan-card-info">
+          <div class="plan-card-name">${name}</div>
+          <div class="plan-card-meta">${meta}</div>
+        </div>
+        <div class="${statusClass}">${statusText}</div>
+      </div>`;
+  }
+  root.innerHTML = html;
+}
+
+window.cyclePlanDay = async function (dayIndex) {
+  if (!currentUser || dayIndex < 0 || dayIndex > 6) return;
+  ensureWeekPlan();
+  const cur = currentUser.weekPlan[dayIndex];
+  let ci = PLAN_TYPE_CYCLE.indexOf(cur);
+  if (ci < 0) ci = 0;
+  const next = PLAN_TYPE_CYCLE[(ci + 1) % PLAN_TYPE_CYCLE.length];
+  currentUser.weekPlan[dayIndex] = next;
+  renderPlan();
+  try {
+    await updateDoc(doc(db, 'users', currentUser.uid), { weekPlan: currentUser.weekPlan });
+    showToast('Den aktualizován · plán uložen');
+  } catch (e) {
+    showToast('Chyba ukládání: ' + e.message);
+  }
+};
 
 window.selectProgram = function(card, idx) {
   document.querySelectorAll('.program-card').forEach(c => c.classList.remove('active'));
@@ -1302,12 +1384,18 @@ tryAutoLogin();
   .lb-stat-kcal { font-size:0.72rem; color:var(--muted); margin-top:2px; }
 
   /* PLAN PAGE */
+  .plan-hint {
+    font-size:0.78rem; color:var(--muted); line-height:1.45;
+    padding:0 1.5rem 1rem; margin-top:-0.3rem;
+  }
+  .plan-week-list { padding:0 1.5rem 1.5rem; }
   .plan-card {
     display:flex; align-items:center; gap:1rem;
     background:var(--surface); border:1px solid var(--border);
     border-radius:12px; padding:1rem 1.2rem; margin-bottom:0.6rem;
     cursor:pointer; transition:all 0.2s;
   }
+  .plan-card-editable:active { opacity:0.92; }
   .plan-card:hover { border-color:var(--muted); }
   .plan-card.today-plan { border-color:var(--accent); background:#1a1e00; }
   .plan-day-badge { font-family:'Bebas Neue',sans-serif; font-size:0.85rem; letter-spacing:2px; color:var(--muted); min-width:24px; }
@@ -1321,6 +1409,7 @@ tryAutoLogin();
   }
   .plan-card-status.done { background:#1a1e00; border-color:var(--accent); color:var(--accent); }
   .plan-card-status.active-status { background:var(--accent); color:#000; border-color:var(--accent); }
+  .plan-card-status.rest { color:var(--muted); }
 
   /* PROFILE PAGE */
   .profile-header {
@@ -1666,13 +1755,8 @@ tryAutoLogin();
   <div class="page" id="page-plan">
     <div class="plan-page">
       <div class="page-title">TÝDENNÍ PLÁN</div>
-      <div class="plan-card"><div class="plan-day-badge">PO</div><div class="plan-card-info"><div class="plan-card-name">Celotělový trénink</div><div class="plan-card-meta">5 cvičení · ~24 min</div></div><div class="plan-card-status done">Hotovo</div></div>
-      <div class="plan-card"><div class="plan-day-badge">ÚT</div><div class="plan-card-info"><div class="plan-card-name">Kardio jemné</div><div class="plan-card-meta">5 cvičení · ~18 min</div></div><div class="plan-card-status done">Hotovo</div></div>
-      <div class="plan-card today-plan"><div class="plan-day-badge active">ST</div><div class="plan-card-info"><div class="plan-card-name">Celotělový trénink</div><div class="plan-card-meta">5 cvičení · ~24 min</div></div><div class="plan-card-status active-status">Dnes</div></div>
-      <div class="plan-card"><div class="plan-day-badge">ČT</div><div class="plan-card-info"><div class="plan-card-name">Core a záda</div><div class="plan-card-meta">5 cvičení · ~22 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">PÁ</div><div class="plan-card-info"><div class="plan-card-name">Protažení a mobilita</div><div class="plan-card-meta">5 cvičení · 15 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">SO</div><div class="plan-card-info"><div class="plan-card-name">Nohy a hýždě</div><div class="plan-card-meta">5 cvičení · ~25 min</div></div><div class="plan-card-status">Plánováno</div></div>
-      <div class="plan-card"><div class="plan-day-badge">NE</div><div class="plan-card-info"><div class="plan-card-name">Odpočinek</div><div class="plan-card-meta">Regenerace</div></div><div class="plan-card-status">Volno</div></div>
+      <p class="plan-hint">Klepni na den — proklikáš typ tréninku (5 programů) nebo <strong>volno</strong>. Ukládá se k tvému účtu.</p>
+      <div id="planWeekList" class="plan-week-list"></div>
     </div>
   </div>
 
