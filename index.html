@@ -478,6 +478,7 @@ window.setTrainingMode = function (mode) {
     if (blockO) blockO.style.display = 'none';
     if (startBtn) startBtn.style.display = 'block';
   }
+  updateTodayPlanHint();
 };
 
 function applyStoredTrainingMode() {
@@ -667,6 +668,7 @@ window.switchPage = function(pageId, navEl) {
   window.scrollTo(0,0);
   if (pageId === 'statistiky') loadLeaderboard();
   if (pageId === 'plan') renderPlan();
+  if (pageId === 'dnes') updateTodayPlanHint();
 };
 
 window.showAuthScreen = showAuthScreen;
@@ -748,7 +750,14 @@ const programs = [
 // TÝDENNÍ PLÁN (Po–Ne, index 0 = pondělí)
 // ═══════════════════════════════════════════
 const PLAN_DAY_BADGES = ['PO', 'ÚT', 'ST', 'ČT', 'PÁ', 'SO', 'NE'];
-const PLAN_TYPE_CYCLE = [0, 1, 2, 3, 4, null];
+/** Pořadí proklikávání: domácí programy → venku chůze/běh/kolo → volno */
+const PLAN_TYPE_CYCLE = [0, 1, 2, 3, 4, 'ow', 'or', 'ob', null];
+/** Klíče v weekPlan: ow = chůze venku, or = běh, ob = kolo (kompatibilní s Firestore) */
+const OUTDOOR_PLAN_SLOTS = {
+  ow: { label: 'Chůze venku (GPS)', meta: 'Záložka Venku · sledování trasy', icon: '🚶', kind: 'walk' },
+  or: { label: 'Běh venku (GPS)', meta: 'Záložka Venku · sledování trasy', icon: '🏃', kind: 'run' },
+  ob: { label: 'Kolo venku (GPS)', meta: 'Záložka Venku · sledování trasy', icon: '🚴', kind: 'bike' }
+};
 
 function weekPlanTodayIndex() {
   const d = new Date().getDay();
@@ -773,20 +782,33 @@ function renderPlan() {
   for (let i = 0; i < 7; i++) {
     const pIdx = currentUser.weekPlan[i];
     const isToday = i === todayI;
-    let name, meta, statusClass, statusText;
+    let name, meta, statusClass, statusText, extraClass = '';
     if (pIdx == null) {
       name = 'Odpočinek';
       meta = 'Regenerace';
       statusClass = 'plan-card-status rest';
       statusText = 'Volno';
-    } else {
-      const prog = programs[pIdx];
-      name = prog ? prog.planLabel : '—';
-      meta = prog ? prog.meta : '';
+    } else if (typeof pIdx === 'string' && OUTDOOR_PLAN_SLOTS[pIdx]) {
+      const od = OUTDOOR_PLAN_SLOTS[pIdx];
+      name = od.label;
+      meta = od.meta;
+      extraClass = ' plan-card-outdoor';
       statusClass = isToday ? 'plan-card-status active-status' : 'plan-card-status';
-      statusText = isToday ? 'Dnes' : 'V plánu';
+      statusText = isToday ? 'Dnes' : 'Venku';
+    } else if (typeof pIdx === 'number' && programs[pIdx]) {
+      const prog = programs[pIdx];
+      name = prog.planLabel;
+      meta = prog.meta;
+      statusClass = isToday ? 'plan-card-status active-status' : 'plan-card-status';
+      statusText = isToday ? 'Dnes' : 'Doma';
+    } else {
+      name = '—';
+      meta = '';
+      statusClass = 'plan-card-status';
+      statusText = isToday ? 'Dnes' : '?';
     }
-    const cardClass = 'plan-card' + (isToday ? ' today-plan' : '') + ' plan-card-editable';
+    const cardClass =
+      'plan-card' + (isToday ? ' today-plan' : '') + ' plan-card-editable' + extraClass;
     const badgeClass = 'plan-day-badge' + (isToday ? ' active' : '');
     html += `
       <div class="${cardClass}" role="button" tabindex="0" onclick="cyclePlanDay(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cyclePlanDay(${i});}">
@@ -799,6 +821,7 @@ function renderPlan() {
       </div>`;
   }
   root.innerHTML = html;
+  updateTodayPlanHint();
 }
 
 window.cyclePlanDay = async function (dayIndex) {
@@ -816,6 +839,28 @@ window.cyclePlanDay = async function (dayIndex) {
   } catch (e) {
     showToast('Chyba ukládání: ' + e.message);
   }
+};
+
+function updateTodayPlanHint() {
+  const el = document.getElementById('todayPlanHint');
+  if (!el || !currentUser) return;
+  ensureWeekPlan();
+  const slot = currentUser.weekPlan[weekPlanTodayIndex()];
+  const od = typeof slot === 'string' ? OUTDOOR_PLAN_SLOTS[slot] : null;
+  if (!od) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML = `<span class="today-plan-hint-txt">${od.icon} Dnes v plánu: <strong>${od.label}</strong></span><button type="button" class="today-plan-hint-btn" onclick="goOutdoorFromPlan('${od.kind}')">Přejít na Venku</button>`;
+}
+
+window.goOutdoorFromPlan = function (kind) {
+  if (!kind || !OUTDOOR_TYPES[kind]) return;
+  setTrainingMode('outdoor');
+  selectOutdoorKind(kind);
+  showToast('Zvoleno podle plánu — klepni na Zahájit sledování (GPS).');
 };
 
 window.selectProgram = function(card, idx) {
@@ -1216,6 +1261,19 @@ tryAutoLogin();
   }
   .mode-pill.active { background:var(--accent); color:#000; }
 
+  .today-plan-hint {
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px;
+    margin:0 1.5rem 1rem; padding:12px 14px;
+    background:rgba(126,184,255,0.08); border:1px solid rgba(126,184,255,0.25);
+    border-radius:12px; font-size:0.78rem; color:var(--text); line-height:1.35;
+  }
+  .today-plan-hint-txt { text-align:center; }
+  .today-plan-hint-btn {
+    border:none; border-radius:100px; padding:8px 14px; cursor:pointer;
+    font-family:'DM Sans',sans-serif; font-size:0.72rem; font-weight:700;
+    letter-spacing:1px; text-transform:uppercase; background:var(--accent); color:#000;
+  }
+
   .outdoor-lead {
     font-size:0.78rem; color:var(--muted); line-height:1.45;
     padding:0 1.5rem 0.8rem;
@@ -1398,6 +1456,8 @@ tryAutoLogin();
   .plan-card-editable:active { opacity:0.92; }
   .plan-card:hover { border-color:var(--muted); }
   .plan-card.today-plan { border-color:var(--accent); background:#1a1e00; }
+  .plan-card-outdoor { border-color:rgba(126,184,255,0.35); }
+  .plan-card-outdoor.today-plan { background:rgba(126,184,255,0.06); }
   .plan-day-badge { font-family:'Bebas Neue',sans-serif; font-size:0.85rem; letter-spacing:2px; color:var(--muted); min-width:24px; }
   .plan-day-badge.active { color:var(--accent); }
   .plan-card-info { flex:1; }
@@ -1659,6 +1719,8 @@ tryAutoLogin();
       </div>
     </div>
 
+    <div id="todayPlanHint" class="today-plan-hint" style="display:none" aria-live="polite"></div>
+
     <div id="blockHomeTraining">
     <div class="section-header"><div class="section-title">Programy</div></div>
     <div class="programs-scroll">
@@ -1755,7 +1817,7 @@ tryAutoLogin();
   <div class="page" id="page-plan">
     <div class="plan-page">
       <div class="page-title">TÝDENNÍ PLÁN</div>
-      <p class="plan-hint">Klepni na den — proklikáš typ tréninku (5 programů) nebo <strong>volno</strong>. Ukládá se k tvému účtu.</p>
+      <p class="plan-hint">Klepni na den — proklikáš <strong>5 domácích programů</strong>, pak <strong>chůzi / běh / kolo venku (GPS)</strong> a nakonec <strong>volno</strong>. Ukládá se k tvému účtu.</p>
       <div id="planWeekList" class="plan-week-list"></div>
     </div>
   </div>
