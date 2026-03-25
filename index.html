@@ -59,6 +59,13 @@ const OUTDOOR_TYPES = {
   bike: { label: 'Kolo', icon: '🚴', kcalPerKm: 28 }
 };
 
+const DIFFICULTY_LABELS = ['Lehká', 'Střední', 'Náročná', 'Extra'];
+const DIFFICULTY_WORK_MULT = [0.82, 1, 1.18, 1.35];
+const REST_DURATION_OPTIONS = [30, 45, 60, 90, 120];
+let currentDifficulty = 1;
+let currentRestIdx = 2;
+let soundEnabled = true;
+
 // hash PIN
 async function hashPin(pin) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin + "schoolfit_salt"));
@@ -104,7 +111,8 @@ window.registerUser = async function() {
       createdAt: serverTimestamp(),
       stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null, outdoorKm: 0 },
       outdoorHistory: [],
-      weekPlan: DEFAULT_WEEK_PLAN.slice()
+      weekPlan: DEFAULT_WEEK_PLAN.slice(),
+      trainingPrefs: { difficulty: 1, restIdx: 2, sound: true }
     });
 
     showToast('Účet vytvořen! Přihlašuješ se...');
@@ -613,6 +621,7 @@ function showApp() {
 
   updateProfileStats();
   document.getElementById('shareToggle').className = 'toggle' + (currentUser.shareStats ? ' on' : '');
+  applyPrefsFromUser();
   if (ensureWeekPlan()) {
     updateDoc(doc(db, 'users', currentUser.uid), { weekPlan: currentUser.weekPlan }).catch(() => {});
   }
@@ -640,6 +649,92 @@ function updateProfileStats() {
   if (pok) pok.textContent = okm >= 10 ? okm.toFixed(1) : (Math.round(okm * 10) / 10).toString();
   document.getElementById('profileNick').textContent = '@' + currentUser.uid;
   document.getElementById('profileName').textContent = currentUser.displayName;
+}
+
+function applyPrefsFromUser() {
+  const p = currentUser?.trainingPrefs;
+  if (p && typeof p.difficulty === 'number' && p.difficulty >= 0 && p.difficulty < DIFFICULTY_LABELS.length) {
+    currentDifficulty = p.difficulty;
+  } else currentDifficulty = 1;
+  if (p && typeof p.restIdx === 'number' && p.restIdx >= 0 && p.restIdx < REST_DURATION_OPTIONS.length) {
+    currentRestIdx = p.restIdx;
+  } else currentRestIdx = 2;
+  soundEnabled = p && typeof p.sound === 'boolean' ? p.sound : true;
+  refreshTrainingSettingsUi();
+}
+
+function refreshTrainingSettingsUi() {
+  const d = document.getElementById('settingDifficulty');
+  const r = document.getElementById('settingRest');
+  const st = document.getElementById('soundToggle');
+  if (d) d.textContent = DIFFICULTY_LABELS[currentDifficulty] + ' ›';
+  if (r) r.textContent = REST_DURATION_OPTIONS[currentRestIdx] + ' s ›';
+  if (st) st.className = 'toggle' + (soundEnabled ? ' on' : '');
+}
+
+async function persistTrainingPrefs() {
+  if (!currentUser) return;
+  const trainingPrefs = {
+    difficulty: currentDifficulty,
+    restIdx: currentRestIdx,
+    sound: soundEnabled
+  };
+  currentUser.trainingPrefs = trainingPrefs;
+  await updateDoc(doc(db, 'users', currentUser.uid), { trainingPrefs });
+}
+
+window.cycleDifficulty = async function () {
+  currentDifficulty = (currentDifficulty + 1) % DIFFICULTY_LABELS.length;
+  refreshTrainingSettingsUi();
+  showToast('Obtížnost: ' + DIFFICULTY_LABELS[currentDifficulty]);
+  try {
+    await persistTrainingPrefs();
+  } catch (e) {
+    showToast('Chyba ukládání: ' + e.message);
+  }
+};
+
+window.cycleRestDuration = async function () {
+  currentRestIdx = (currentRestIdx + 1) % REST_DURATION_OPTIONS.length;
+  refreshTrainingSettingsUi();
+  showToast('Odpočinek mezi cviky: ' + REST_DURATION_OPTIONS[currentRestIdx] + ' s');
+  try {
+    await persistTrainingPrefs();
+  } catch (e) {
+    showToast('Chyba ukládání: ' + e.message);
+  }
+};
+
+window.toggleSoundSetting = async function () {
+  soundEnabled = !soundEnabled;
+  refreshTrainingSettingsUi();
+  showToast(soundEnabled ? 'Zvuk zapnut' : 'Zvuk vypnut');
+  try {
+    await persistTrainingPrefs();
+  } catch (e) {
+    showToast('Chyba ukládání: ' + e.message);
+  }
+};
+
+function getScaledWorkSec(baseSec) {
+  const mult = DIFFICULTY_WORK_MULT[currentDifficulty] ?? 1;
+  return Math.max(10, Math.round((baseSec * mult) / 5) * 5);
+}
+
+function playTimerBeep(highTone) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = highTone ? 880 : 440;
+    gain.gain.setValueAtTime(0.22, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.14);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.14);
+  } catch (e) {}
 }
 
 function setLoading(btnId, loading) {
@@ -925,9 +1020,10 @@ async function checkAllDone() {
 // TIMER
 // ═══════════════════════════════════════════
 function buildTimerQueue() {
-  return programs[currentProgram].exercises.flatMap(ex => [
-    {type:'work', sec:ex.workSec, name:ex.name.toUpperCase()},
-    {type:'rest', sec:ex.restSec, name:'ODPOČINEK'},
+  const restSec = REST_DURATION_OPTIONS[currentRestIdx] ?? 60;
+  return programs[currentProgram].exercises.flatMap((ex) => [
+    { type: 'work', sec: getScaledWorkSec(ex.workSec), name: ex.name.toUpperCase() },
+    { type: 'rest', sec: restSec, name: 'ODPOČINEK' }
   ]);
 }
 
@@ -955,8 +1051,10 @@ function startTimerPhase() {
     timerSeconds--;
     if (timerSeconds <= 0) {
       clearInterval(timerInterval);
-      if (timerQueue[timerQueueIndex].type === 'work') {
-        completedExercises.add(Math.floor(timerQueueIndex/2));
+      const donePhase = timerQueue[timerQueueIndex];
+      playTimerBeep(donePhase.type === 'work');
+      if (donePhase.type === 'work') {
+        completedExercises.add(Math.floor(timerQueueIndex / 2));
         renderExercises();
       }
       timerQueueIndex++;
@@ -1506,6 +1604,7 @@ tryAutoLogin();
   .settings-item:hover { background:var(--surface2); }
   .settings-item-label { font-size:0.88rem; }
   .settings-item-value { font-size:0.78rem; color:var(--muted); }
+  .settings-item-action { cursor:pointer; }
   .toggle {
     width:40px; height:22px; background:var(--border);
     border-radius:11px; position:relative; transition:background 0.2s; cursor:pointer; flex-shrink:0;
@@ -1881,9 +1980,18 @@ tryAutoLogin();
 
       <div class="settings-section-label">Nastavení</div>
       <div class="settings-row">
-        <div class="settings-item"><span class="settings-item-label">Obtížnost</span><span class="settings-item-value">Střední ›</span></div>
-        <div class="settings-item"><span class="settings-item-label">Délka odpočinku</span><span class="settings-item-value">60 s ›</span></div>
-        <div class="settings-item"><span class="settings-item-label">Zvukové signály</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+        <div class="settings-item settings-item-action" onclick="cycleDifficulty()">
+          <span class="settings-item-label">Obtížnost</span>
+          <span class="settings-item-value" id="settingDifficulty">Střední ›</span>
+        </div>
+        <div class="settings-item settings-item-action" onclick="cycleRestDuration()">
+          <span class="settings-item-label">Délka odpočinku</span>
+          <span class="settings-item-value" id="settingRest">60 s ›</span>
+        </div>
+        <div class="settings-item">
+          <span class="settings-item-label">Zvukové signály</span>
+          <div class="toggle on" id="soundToggle" onclick="event.stopPropagation();toggleSoundSetting();"></div>
+        </div>
       </div>
 
       <div class="settings-section-label">Účet</div>
