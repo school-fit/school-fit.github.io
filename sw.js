@@ -1,5 +1,5 @@
-/* SCHOOL FIT — minimální service worker pro instalaci PWA a základní offline */
-const CACHE = 'school-fit-pwa-v1';
+/* SCHOOL FIT — PWA cache; obrázky vždy z networku (až nahraješ pictures/ na server) */
+const CACHE = 'school-fit-pwa-v2';
 const PRECACHE = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 function scopeUrl(path) {
@@ -32,6 +32,12 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
+
+  /* SVG/PNG návodů neskládáme do cache — po nahrání pictures/ na Git se hned projeví */
+  if (url.pathname.includes('/pictures/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   if (event.request.mode === 'navigate') {
     event.respondWith(

@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>SCHOOL FIT</title>
-<meta name="theme-color" content="#0a0a0a">
+<meta name="theme-color" content="#16122a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="Školní fitness tracker — doma i venku s GPS">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
 
 <!-- Firebase SDK -->
 <script type="module">
@@ -60,11 +60,357 @@ const OUTDOOR_TYPES = {
 };
 
 const DIFFICULTY_LABELS = ['Lehká', 'Střední', 'Náročná', 'Extra'];
-const DIFFICULTY_WORK_MULT = [0.82, 1, 1.18, 1.35];
-const REST_DURATION_OPTIONS = [30, 45, 60, 90, 120];
+/** 0–3 → úroveň obsahu (e / m / h / x) v UI a obrázcích */
+function contentTierFromDifficulty() {
+  return Math.max(0, Math.min(3, currentDifficulty));
+}
+const CONTENT_TIER_LABEL = ['Lehká varianta', 'Standard', 'Náročná varianta', 'Extra varianta'];
+/** Přednastavení lekce: cvik + pauza (sekundy) */
+const LESSON_TIMING_PRESETS = [
+  { id: 0, label: 'Lehké', work: 20, rest: 40, theme: 'easy' },
+  { id: 1, label: 'Střední', work: 30, rest: 30, theme: 'mid' },
+  { id: 2, label: 'Obtížné', work: 40, rest: 20, theme: 'hard' }
+];
+let timingPresetIdx = 1;
+let lessonWorkSec = 30;
+let lessonRestSec = 30;
+let lessonWorkOverride = null;
+let lessonRestOverride = null;
 let currentDifficulty = 1;
-let currentRestIdx = 2;
 let soundEnabled = true;
+let soundVolume = 1;
+let completingViaTimer = false;
+let timerWarnedThisPhase = false;
+let timerPaused = false;
+let sessionWorkSecondsDone = 0;
+let lastTimerFinishWasComplete = false;
+let audioCtxShared = null;
+
+function applyEffectiveLessonTimes() {
+  const pr = LESSON_TIMING_PRESETS[timingPresetIdx] || LESSON_TIMING_PRESETS[1];
+  lessonWorkSec =
+    lessonWorkOverride != null ? Math.max(10, Math.min(90, lessonWorkOverride)) : pr.work;
+  lessonRestSec =
+    lessonRestOverride != null ? Math.max(10, Math.min(120, lessonRestOverride)) : pr.rest;
+}
+
+function getAudioCtx() {
+  if (!audioCtxShared) {
+    audioCtxShared = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioCtxShared;
+}
+
+/** start | warn | endWork | endRest | stopWork | pauseIn | pauseOut */
+function playTimerBeep(kind) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    let freq = 440;
+    let dur = 0.12;
+    let vol = 0.2;
+    if (kind === 'start') {
+      freq = 660;
+      dur = 0.1;
+    } else if (kind === 'warn') {
+      freq = 520;
+      dur = 0.14;
+      vol = 0.24;
+    } else if (kind === 'endWork') {
+      freq = 880;
+      dur = 0.16;
+    } else if (kind === 'endRest') {
+      freq = 320;
+      dur = 0.18;
+      vol = 0.22;
+    } else if (kind === 'stopWork') {
+      freq = 180;
+      dur = 0.1;
+      vol = 0.28;
+    } else if (kind === 'pauseIn' || kind === 'pauseOut') {
+      freq = kind === 'pauseIn' ? 380 : 550;
+      dur = 0.12;
+    }
+    vol *= soundVolume;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + dur);
+    osc.start(now);
+    osc.stop(now + dur);
+  } catch (e) {}
+}
+
+function estimateLessonSeconds(programIndex) {
+  const n = programs[programIndex]?.exercises?.length || 0;
+  applyEffectiveLessonTimes();
+  return n * (lessonWorkSec + lessonRestSec);
+}
+
+function formatDuration(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m} min ${s} s` : `${s} s`;
+}
+
+const LEVEL_STROKE = { e: '#5b9fd4', m: '#8fd68a', h: '#e8943a', x: '#ff5c5c' };
+/** Jednoduché siluety podle úrovně (lehčí = nižší / klidnější, těžší = dynamičtější) */
+const POSE_SVG = {
+  pushup: {
+    e: '<circle cx="28" cy="14" r="4"/><path d="M28 18v8M18 26h20M16 38l8-8M32 30l8 8"/>',
+    m: '<circle cx="28" cy="12" r="4"/><path d="M28 16v10M14 28h28M12 42l10-12M36 30l10 12"/>',
+    h: '<circle cx="28" cy="10" r="4"/><path d="M28 14v12M12 28h32M10 44l12-14M34 30l12 14"/><path d="M40 8l6-4" opacity=".7"/>'
+  },
+  squat: {
+    e: '<circle cx="28" cy="14" r="4"/><path d="M28 18v10M20 34h16M22 44v-8M34 44v-8"/>',
+    m: '<circle cx="28" cy="12" r="4"/><path d="M28 16v12M18 32h20M20 44v-10M36 44v-10"/>',
+    h: '<circle cx="28" cy="11" r="4"/><path d="M28 15v10M16 30h24M18 42v-10M38 42v-10"/><path d="M28 25v8" opacity=".6"/>'
+  },
+  bridge: {
+    e: '<circle cx="28" cy="38" r="4"/><path d="M12 38h32M18 28q10-8 20 0"/>',
+    m: '<circle cx="28" cy="40" r="4"/><path d="M10 40h36M16 26q12-10 24 0"/>',
+    h: '<circle cx="28" cy="40" r="4"/><path d="M8 40h40M14 24q14-12 18 0"/><path d="M22 32l12-6" opacity=".6"/>'
+  },
+  lunge: {
+    e: '<circle cx="28" cy="12" r="4"/><path d="M28 16v14M22 38l-6 6M32 32l8 8"/>',
+    m: '<circle cx="28" cy="11" r="4"/><path d="M28 15v16M18 40l-8 6M34 34l10 8"/>',
+    h: '<circle cx="28" cy="10" r="4"/><path d="M28 14v14M16 38l-10 8M36 32l12 10"/><path d="M38 20h6" opacity=".6"/>'
+  },
+  plank: {
+    e: '<circle cx="38" cy="18" r="4"/><path d="M38 22v6M14 28h40M12 36l8 4M48 32l8 4"/>',
+    m: '<circle cx="40" cy="16" r="4"/><path d="M40 20v8M10 30h44M8 38l10 4M50 34l10 4"/>',
+    h: '<circle cx="42" cy="14" r="4"/><path d="M42 18v10M8 32h48M6 40l12 4M52 36l12 4"/><path d="M20 28h16" opacity=".5"/>'
+  },
+  march: {
+    e: '<circle cx="28" cy="10" r="4"/><path d="M28 14v12M22 30l-4 10M34 28l4 10"/>',
+    m: '<circle cx="28" cy="10" r="4"/><path d="M28 14v10M20 28l-6 12M36 26l6 12"/>',
+    h: '<circle cx="28" cy="9" r="4"/><path d="M28 13v8M18 24l-8 14M38 22l8 14"/><path d="M24 18h8" opacity=".6"/>'
+  },
+  jack: {
+    e: '<circle cx="28" cy="12" r="4"/><path d="M28 16v10M20 28h16M22 38v6M34 38v6"/>',
+    m: '<circle cx="28" cy="11" r="4"/><path d="M28 15v8M16 26h24M14 36l6 8M42 36l-6 8"/>',
+    h: '<circle cx="28" cy="10" r="4"/><path d="M28 14v6M12 24h32M10 34l8 10M46 34l-8 10"/>'
+  },
+  kneeup: {
+    e: '<circle cx="32" cy="16" r="4"/><path d="M32 20v6M16 28h28M14 38l6-6M40 34l6 6"/>',
+    m: '<circle cx="34" cy="14" r="4"/><path d="M34 18v8M12 30h36M10 40l8-8M44 36l8 8"/>',
+    h: '<circle cx="36" cy="12" r="4"/><path d="M36 16v10M8 32h40M6 42l10-10M48 38l10 10"/>'
+  },
+  sidestep: {
+    e: '<circle cx="28" cy="14" r="4"/><path d="M28 18v14M18 36h20"/>',
+    m: '<circle cx="28" cy="12" r="4"/><path d="M28 16v16M14 38h28"/>',
+    h: '<circle cx="28" cy="11" r="4"/><path d="M28 15v14M10 36h36"/><path d="M38 22l8-4" opacity=".6"/>'
+  },
+  sitstretch: {
+    e: '<circle cx="28" cy="14" r="4"/><path d="M28 18v8M16 30h24M14 40l6-8M42 38l-6-8"/>',
+    m: '<circle cx="28" cy="12" r="4"/><path d="M28 16v6M12 28h32M10 40l8-10M46 38l-8-10"/>',
+    h: '<circle cx="28" cy="11" r="4"/><path d="M28 15v4M8 26h40M6 40l10-12M50 36l-10-12"/>'
+  },
+  butterfly: {
+    e: '<circle cx="28" cy="16" r="4"/><path d="M28 20v6M18 28q-6 8 0 12M38 28q6 8 0 12"/>',
+    m: '<circle cx="28" cy="14" r="4"/><path d="M28 18v8M14 28q-8 10 0 14M42 28q8 10 0 14"/>',
+    h: '<circle cx="28" cy="13" r="4"/><path d="M28 17v8M10 26q-10 12 0 16M46 26q10 12 0 16"/>'
+  },
+  catcow: {
+    e: '<circle cx="28" cy="18" r="4"/><path d="M28 22v6M16 30h24M20 40l-4-6M36 40l4-6"/>',
+    m: '<circle cx="28" cy="16" r="4"/><path d="M28 20v8M12 32h32M18 42l-6-8M38 42l6-8"/>',
+    h: '<circle cx="28" cy="15" r="4"/><path d="M28 19v10M8 34h40M16 44l-8-10M40 44l8-10"/>'
+  },
+  twist: {
+    e: '<circle cx="28" cy="14" r="4"/><path d="M28 18v10M20 30h16M18 40l4-6M38 40l-4-6"/>',
+    m: '<circle cx="28" cy="12" r="4"/><path d="M28 16v12M14 32h28M12 42l6-8M44 42l-6-8"/>',
+    h: '<circle cx="28" cy="11" r="4"/><path d="M28 15v14M10 34h36M8 44l8-10M48 44l-8-10"/>'
+  },
+  pigeon: {
+    e: '<circle cx="28" cy="20" r="4"/><path d="M28 24v8M18 34h20M22 44l-4-6M34 44l4-6"/>',
+    m: '<circle cx="28" cy="18" r="4"/><path d="M28 22v10M14 36h28M18 46l-6-8M38 46l6-8"/>',
+    h: '<circle cx="28" cy="17" r="4"/><path d="M28 21v12M10 38h36M14 48l-8-10M42 48l8-10"/>'
+  },
+  superman: {
+    e: '<circle cx="28" cy="38" r="4"/><path d="M12 38h32M8 32l8 4M48 32l-8 4"/>',
+    m: '<circle cx="28" cy="40" r="4"/><path d="M8 40h40M4 34l12 6M52 34l-12 6"/>',
+    h: '<circle cx="28" cy="40" r="4"/><path d="M6 40h44M2 32l14 8M56 32l-14 8"/><path d="M20 36l16-4" opacity=".6"/>'
+  },
+  bird: {
+    e: '<circle cx="28" cy="30" r="4"/><path d="M28 34v6M18 28l-6-4M38 28l6-4"/>',
+    m: '<circle cx="28" cy="28" r="4"/><path d="M28 32v8M14 26l-10-6M42 26l10-6"/>',
+    h: '<circle cx="28" cy="26" r="4"/><path d="M28 30v10M10 24l-12-8M46 24l12-8"/>'
+  },
+  sideplank: {
+    e: '<circle cx="36" cy="22" r="4"/><path d="M36 26v8M24 34l8-4M32 42h8"/>',
+    m: '<circle cx="38" cy="20" r="4"/><path d="M38 24v10M22 36l10-6M34 44h10"/>',
+    h: '<circle cx="40" cy="18" r="4"/><path d="M40 22v12M18 38l12-8M36 46h12"/><path d="M28 32l6-8" opacity=".6"/>'
+  },
+  revlunge: {
+    e: '<circle cx="28" cy="12" r="4"/><path d="M28 16v12M32 36l6 8M22 34l-6 8"/>',
+    m: '<circle cx="28" cy="11" r="4"/><path d="M28 15v14M34 38l8 8M20 36l-8 8"/>',
+    h: '<circle cx="28" cy="10" r="4"/><path d="M28 14v12M36 36l10 10M18 34l-10 10"/>'
+  },
+  singleleg: {
+    e: '<circle cx="28" cy="36" r="4"/><path d="M12 38h32M20 28v10M32 26v12"/>',
+    m: '<circle cx="28" cy="38" r="4"/><path d="M10 40h36M18 26v14M34 24v16"/>',
+    h: '<circle cx="28" cy="38" r="4"/><path d="M8 40h40M16 24v16M36 22v18"/><path d="M32 18v8" opacity=".6"/>'
+  },
+  wallsit: {
+    e: '<circle cx="28" cy="22" r="4"/><path d="M28 26v10M16 38h24M16 38v8M40 38v8"/>',
+    m: '<circle cx="28" cy="20" r="4"/><path d="M28 24v12M14 38h28M14 38v10M42 38v10"/>',
+    h: '<circle cx="28" cy="18" r="4"/><path d="M28 22v14M10 38h36M10 38v12M46 38v12"/>'
+  },
+  calf: {
+    e: '<circle cx="28" cy="12" r="4"/><path d="M28 16v18M22 38v6M34 38v6"/>',
+    m: '<circle cx="28" cy="11" r="4"/><path d="M28 15v20M20 38v8M36 38v8"/>',
+    h: '<circle cx="28" cy="10" r="4"/><path d="M28 14v18M18 36v10M38 36v10"/><path d="M24 30h8" opacity=".6"/>'
+  }
+};
+
+function poseSvg(poseKey, tier) {
+  const P = POSE_SVG[poseKey] || POSE_SVG.squat;
+  const geomKey = tier <= 0 ? 'e' : tier === 1 ? 'm' : 'h';
+  const inner = P[geomKey] || P.m;
+  const stroke =
+    tier === 0 ? LEVEL_STROKE.e : tier === 1 ? LEVEL_STROKE.m : tier === 2 ? LEVEL_STROKE.h : LEVEL_STROKE.x;
+  return `<svg class="ex-pose-svg" viewBox="0 0 56 56" aria-hidden="true"><g fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</g></svg>`;
+}
+window.poseSvg = poseSvg;
+
+/** Obrázky fází: pictures/exercises/{slug}/phase-1.png … (volitelně SVG) */
+const EXERCISE_PHASE_LABELS = ['Výchozí', 'Průběh', 'Závěr'];
+
+const EXERCISE_IMG_SLUGS = [
+  ['e-ct-kliky', 'e-ct-drep', 'e-ct-bridge', 'e-ct-lunge', 'e-ct-plank'],
+  ['e-ka-march', 'e-ka-jack', 'e-ka-knee', 'e-ka-side', 'e-ka-squat'],
+  ['e-mo-fold', 'e-mo-bfly', 'e-mo-cat', 'e-mo-twist', 'e-mo-pigeon'],
+  ['e-co-elplank', 'e-co-super', 'e-co-bird', 'e-co-side', 'e-co-bridge2'],
+  ['e-le-squat', 'e-le-revlung', 'e-le-onebridge', 'e-le-wall', 'e-le-calf']
+];
+
+const TIER_DIR_BY_CONTENT = ['e', 'm', 'h', 'x'];
+
+function renderExercisePhaseRow(slug, tierDir) {
+  if (!slug) return '';
+  const td = tierDir || 'm';
+  const onGh =
+    typeof location !== 'undefined' &&
+    (location.hostname === 'school-fit.github.io' || location.hostname.endsWith('.github.io'));
+  const ghTip = onGh
+    ? '<p class="ex-phases-gh-tip">💡 Na GitHub Pages musí být v repu nahraná celá složka <code>pictures/exercises</code> (stejně jako <code>index.html</code>). Bez ní server vrací 404 a nic se neukáže.</p>'
+    : '';
+  let html =
+    '<div class="exercise-phases-wrap" data-slug="' +
+    slug +
+    '" data-td="' +
+    td +
+    '" onclick="event.stopPropagation()">' +
+    '<div class="ex-phases-intro">' +
+    '<span class="ex-phases-intro-title">🖼️ Nakreslený návod · 3 fáze</span> ' +
+    '<span class="ex-phases-intro-hint">Klepni na obrázek — zvětší se.</span></div>' +
+    ghTip +
+    '<div class="ex-phases-links" onclick="event.stopPropagation()">' +
+    '<span class="ex-phases-links-lab">Otevřít jako soubor:</span> ' +
+    '<a href="pictures/exercises/' +
+    slug +
+    '/' +
+    td +
+    '/phase-1.svg" target="_blank" rel="noopener">Výchozí</a>' +
+    '<span class="ex-phases-links-sep">·</span>' +
+    '<a href="pictures/exercises/' +
+    slug +
+    '/' +
+    td +
+    '/phase-2.svg" target="_blank" rel="noopener">Průběh</a>' +
+    '<span class="ex-phases-links-sep">·</span>' +
+    '<a href="pictures/exercises/' +
+    slug +
+    '/' +
+    td +
+    '/phase-3.svg" target="_blank" rel="noopener">Závěr</a>' +
+    '</div>' +
+    '<p class="ex-phases-missing-note" role="status"><strong>To se někdy stane.</strong> Nejčastěji: (1) na webu v repozitáři chybí složka <code>pictures/exercises</code> — přidej ji a pushni; (2) otevíráš HTML z disku (<code>file://</code>) — spusť Live Server nebo nasaď na Pages; (3) stará cache PWA — zkus anonymní okno. Odkazy „Výchozí / Průběh / Závěr“ výše ověří, jestli soubory na serveru vůbec jsou.</p>' +
+    '<div class="exercise-phases" data-slug="' +
+    slug +
+    '" data-td="' +
+    td +
+    '" role="group" aria-label="Fáze cviku">';
+  for (let n = 1; n <= 3; n++) {
+    html += `<figure class="ex-phase"><img src="pictures/exercises/${slug}/${td}/phase-${n}.svg" alt="" loading="lazy" decoding="async" data-slug="${slug}" data-n="${n}" data-td="${td}" tabindex="0" onerror="exPhaseImgTrySvg(this)" onclick="event.stopPropagation();openExercisePhaseLightbox(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openExercisePhaseLightbox(this);}"/><figcaption>${EXERCISE_PHASE_LABELS[n - 1]}</figcaption></figure>`;
+  }
+  html += '</div></div>';
+  return html;
+}
+
+window.exPhaseImgTrySvg = function (img) {
+  const slug = img.dataset.slug;
+  const n = img.dataset.n;
+  const td = img.dataset.td || 'm';
+  const step = parseInt(img.dataset.fallbackStep || '0', 10);
+  const chain = [
+    `pictures/exercises/${slug}/phase-${n}.svg`,
+    `pictures/exercises/${slug}/phase-${n}.png`,
+    `pictures/exercises/${slug}/m/phase-${n}.svg`
+  ];
+  if (step >= chain.length) {
+    const fig = img.closest('.ex-phase');
+    if (fig) fig.classList.add('ex-phase-missing');
+    return;
+  }
+  img.dataset.fallbackStep = String(step + 1);
+  img.src = chain[step];
+};
+
+function finalizeExercisePhaseImages() {
+  document.querySelectorAll('.exercise-phases-wrap[data-slug]').forEach((wrap) => {
+    const row = wrap.querySelector('.exercise-phases');
+    if (!row) return;
+    const slug = wrap.dataset.slug;
+    const td = wrap.dataset.td || row.dataset.td || 'm';
+    const ok = () => wrap.classList.remove('ex-phases-missing-all');
+    const fail = () => wrap.classList.add('ex-phases-missing-all');
+    const probe = new Image();
+    probe.onload = ok;
+    probe.onerror = () => {
+      const p2 = new Image();
+      p2.onload = ok;
+      p2.onerror = fail;
+      p2.src = 'pictures/exercises/' + slug + '/phase-1.svg';
+    };
+    probe.src = 'pictures/exercises/' + slug + '/' + td + '/phase-1.svg';
+  });
+}
+
+window.openExercisePhaseLightbox = function (img) {
+  if (!img || !img.src || img.closest('.ex-phase-missing')) return;
+  const lb = document.getElementById('exercisePhaseLightbox');
+  const full = document.getElementById('exercisePhaseLightboxImg');
+  const cap = document.getElementById('exercisePhaseLightboxCap');
+  if (!lb || !full) return;
+  full.src = img.src;
+  full.alt = img.alt || 'Fáze cviku';
+  const fig = img.closest('.ex-phase');
+  const capText = fig?.querySelector('figcaption')?.textContent?.trim() || '';
+  if (cap) cap.textContent = capText;
+  lb.classList.add('active');
+  document.body.style.overflow = 'hidden';
+};
+
+window.closeExercisePhaseLightbox = function () {
+  const lb = document.getElementById('exercisePhaseLightbox');
+  const full = document.getElementById('exercisePhaseLightboxImg');
+  if (lb) lb.classList.remove('active');
+  if (full) full.src = '';
+  document.body.style.overflow = '';
+};
+
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  const lb = document.getElementById('exercisePhaseLightbox');
+  if (lb && lb.classList.contains('active')) closeExercisePhaseLightbox();
+});
+
 
 // hash PIN
 async function hashPin(pin) {
@@ -112,7 +458,7 @@ window.registerUser = async function() {
       stats: { totalWorkouts: 0, totalMinutes: 0, totalKcal: 0, streak: 0, lastWorkout: null, outdoorKm: 0 },
       outdoorHistory: [],
       weekPlan: DEFAULT_WEEK_PLAN.slice(),
-      trainingPrefs: { difficulty: 1, restIdx: 2, sound: true }
+      trainingPrefs: { difficulty: 1, timingPresetIdx: 1, sound: true, soundVolume: 1 }
     });
 
     showToast('Účet vytvořen! Přihlašuješ se...');
@@ -522,7 +868,7 @@ window.promptInstallPwa = async function () {
 // ═══════════════════════════════════════════
 async function loadLeaderboard() {
   const board = document.getElementById('leaderboardList');
-  board.innerHTML = '<div style="color:var(--muted);text-align:center;padding:2rem;font-size:0.85rem;letter-spacing:2px">NAČÍTÁM...</div>';
+  board.innerHTML = '<div style="color:var(--muted);text-align:center;padding:2rem;font-size:0.85rem;letter-spacing:2px">Načítám…</div>';
   try {
     const snap = await getDocs(collection(db, "users"));
     const users = [];
@@ -625,11 +971,15 @@ function showApp() {
   if (ensureWeekPlan()) {
     updateDoc(doc(db, 'users', currentUser.uid), { weekPlan: currentUser.weekPlan }).catch(() => {});
   }
+  renderProgramFilterChips();
+  renderProgramCards();
   renderExercises();
+  applyWorkoutCardTheme();
   renderWeek();
   applyStoredTrainingMode();
   renderOutdoorHistory();
   switchPage('dnes', document.querySelector('.nav-item'));
+  maybeShowOnboardingTour();
 }
 
 function updateProfileStats() {
@@ -656,37 +1006,68 @@ function applyPrefsFromUser() {
   if (p && typeof p.difficulty === 'number' && p.difficulty >= 0 && p.difficulty < DIFFICULTY_LABELS.length) {
     currentDifficulty = p.difficulty;
   } else currentDifficulty = 1;
-  if (p && typeof p.restIdx === 'number' && p.restIdx >= 0 && p.restIdx < REST_DURATION_OPTIONS.length) {
-    currentRestIdx = p.restIdx;
-  } else currentRestIdx = 2;
+  if (p && typeof p.timingPresetIdx === 'number' && p.timingPresetIdx >= 0 && p.timingPresetIdx < LESSON_TIMING_PRESETS.length) {
+    timingPresetIdx = p.timingPresetIdx;
+  } else if (p && typeof p.restIdx === 'number') {
+    const r = p.restIdx;
+    timingPresetIdx = r <= 1 ? 0 : r >= 3 ? 2 : 1;
+  } else timingPresetIdx = 1;
+  lessonWorkOverride =
+    p && typeof p.lessonWork === 'number' ? Math.max(10, Math.min(90, p.lessonWork)) : null;
+  lessonRestOverride =
+    p && typeof p.lessonRest === 'number' ? Math.max(10, Math.min(120, p.lessonRest)) : null;
   soundEnabled = p && typeof p.sound === 'boolean' ? p.sound : true;
+  if (p && typeof p.soundVolume === 'number' && !Number.isNaN(p.soundVolume)) {
+    soundVolume = Math.max(0, Math.min(1, p.soundVolume));
+  } else soundVolume = 1;
+  applyEffectiveLessonTimes();
   refreshTrainingSettingsUi();
 }
 
 function refreshTrainingSettingsUi() {
   const d = document.getElementById('settingDifficulty');
-  const r = document.getElementById('settingRest');
+  const r = document.getElementById('settingTiming');
   const st = document.getElementById('soundToggle');
   if (d) d.textContent = DIFFICULTY_LABELS[currentDifficulty] + ' ›';
-  if (r) r.textContent = REST_DURATION_OPTIONS[currentRestIdx] + ' s ›';
+  applyEffectiveLessonTimes();
+  const pr = LESSON_TIMING_PRESETS[timingPresetIdx];
+  if (r) {
+    const custom =
+      lessonWorkOverride != null || lessonRestOverride != null
+        ? `vlastní ${lessonWorkSec}/${lessonRestSec} s`
+        : '';
+    r.textContent = custom || (pr ? `${pr.label} (${pr.work}/${pr.rest} s) ›` : '›');
+  }
   if (st) st.className = 'toggle' + (soundEnabled ? ' on' : '');
+  const sv = document.getElementById('soundVolumeSlider');
+  const sl = document.getElementById('soundVolumeLabel');
+  if (sv) sv.value = String(Math.round(soundVolume * 100));
+  if (sl) sl.textContent = Math.round(soundVolume * 100) + '%';
+  syncWorkoutHeaderTiming();
 }
 
 async function persistTrainingPrefs() {
   if (!currentUser) return;
-  const trainingPrefs = {
-    difficulty: currentDifficulty,
-    restIdx: currentRestIdx,
-    sound: soundEnabled
-  };
-  currentUser.trainingPrefs = trainingPrefs;
-  await updateDoc(doc(db, 'users', currentUser.uid), { trainingPrefs });
+  const prev = { ...(currentUser.trainingPrefs || {}) };
+  prev.difficulty = currentDifficulty;
+  prev.timingPresetIdx = timingPresetIdx;
+  prev.sound = soundEnabled;
+  prev.soundVolume = soundVolume;
+  if (lessonWorkOverride != null) prev.lessonWork = lessonWorkOverride;
+  else delete prev.lessonWork;
+  if (lessonRestOverride != null) prev.lessonRest = lessonRestOverride;
+  else delete prev.lessonRest;
+  delete prev.restIdx;
+  currentUser.trainingPrefs = prev;
+  await updateDoc(doc(db, 'users', currentUser.uid), { trainingPrefs: prev });
 }
 
 window.cycleDifficulty = async function () {
   currentDifficulty = (currentDifficulty + 1) % DIFFICULTY_LABELS.length;
   refreshTrainingSettingsUi();
-  showToast('Obtížnost: ' + DIFFICULTY_LABELS[currentDifficulty]);
+  applyWorkoutCardTheme();
+  renderExercises();
+  showToast('Úroveň návodu u cviků: ' + DIFFICULTY_LABELS[currentDifficulty]);
   try {
     await persistTrainingPrefs();
   } catch (e) {
@@ -694,10 +1075,14 @@ window.cycleDifficulty = async function () {
   }
 };
 
-window.cycleRestDuration = async function () {
-  currentRestIdx = (currentRestIdx + 1) % REST_DURATION_OPTIONS.length;
+window.cycleLessonTimingPreset = async function () {
+  timingPresetIdx = (timingPresetIdx + 1) % LESSON_TIMING_PRESETS.length;
+  lessonWorkOverride = null;
+  lessonRestOverride = null;
+  applyEffectiveLessonTimes();
   refreshTrainingSettingsUi();
-  showToast('Odpočinek mezi cviky: ' + REST_DURATION_OPTIONS[currentRestIdx] + ' s');
+  const pr = LESSON_TIMING_PRESETS[timingPresetIdx];
+  showToast('Rytmus lekce: ' + pr.label + ' (' + pr.work + ' s cvik / ' + pr.rest + ' s pauza)');
   try {
     await persistTrainingPrefs();
   } catch (e) {
@@ -716,26 +1101,23 @@ window.toggleSoundSetting = async function () {
   }
 };
 
-function getScaledWorkSec(baseSec) {
-  const mult = DIFFICULTY_WORK_MULT[currentDifficulty] ?? 1;
-  return Math.max(10, Math.round((baseSec * mult) / 5) * 5);
-}
-
-function playTimerBeep(highTone) {
-  if (!soundEnabled) return;
+window.onSoundVolumeInput = async function () {
+  const el = document.getElementById('soundVolumeSlider');
+  if (!el) return;
+  soundVolume = Math.max(0, Math.min(1, (parseInt(el.value, 10) || 0) / 100));
+  const sl = document.getElementById('soundVolumeLabel');
+  if (sl) sl.textContent = Math.round(soundVolume * 100) + '%';
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = highTone ? 880 : 440;
-    gain.gain.setValueAtTime(0.22, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.14);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.14);
-  } catch (e) {}
-}
+    await persistTrainingPrefs();
+  } catch (e) {
+    showToast('Chyba ukládání: ' + e.message);
+  }
+};
+
+window.goHomeNav = function () {
+  const first = document.querySelectorAll('.nav-item')[0];
+  switchPage('dnes', first);
+};
 
 function setLoading(btnId, loading) {
   const btn = document.getElementById(btnId);
@@ -774,72 +1156,179 @@ window.showAuthScreen = showAuthScreen;
 // Programy: revize pro domácí cvičení bez vybavení — šetrné ke kloubům, české názvy,
 // bez burpees / skoků / box jumpů; místo HIIT „core a záda“ (viz koncepce v projektu).
 const programs = [
-  { name:"CELOTĚLOVÝ TRÉNINK", planLabel:"Celotělový trénink", meta:"~24 min · 5 cvičení", kcal:95, min:24,
+  { name:"CELOTĚLOVÝ TRÉNINK", planLabel:"Celotělový trénink", planIcon:"💪", meta:"5 cviků", kcal:95, min:24, lenKey:"mid",
     exercises:[
-      { icon:"💪", name:"Kliky od země", detail:"3 × 8–10 opakování", restSec:60, workSec:40,
-        tip:"Tělo v rovině jako při kliku. Začátečníci: ruce výš (lavice/stůl) nebo kolena na zemi. Lokty u těla." },
-      { icon:"🦵", name:"Dřepy", detail:"3 × 10–12 opakování", restSec:55, workSec:45,
-        tip:"Kolena směřují přes prsty, záda vzpřímená. Nedělej příliš hluboký dřep, pokud bolí kolena." },
-      { icon:"🌉", name:"Zvedání pánve ležmo", detail:"3 × 12 opakování", restSec:45, workSec:40,
-        tip:"Leh na zádech, chodidla na zemi, koleně pokrčené. Zvedej pánev nahoru stlačením hýždí (žádná činka není potřeba)." },
-      { icon:"🚶", name:"Výpad jednou nohou vpřed", detail:"3 × 8 opakování / noha", restSec:60, workSec:40,
-        tip:"Velký krok vpřed, obě kolena pokrčíš skoro k pravému úhlu. Zadní špička může být na zemi. Krátký krok = šetrnější." },
-      { icon:"⚡", name:"Prkno (vzpěr na rukou)", detail:"3 × 20–30 sekund výdrž", restSec:45, workSec:30,
-        tip:"Jen ruce a špičky nohou na zemi, tělo rovná jako prkno. Snadnější varianta: kolena na zemi." },
+      { icon:"💪", name:"Kliky od země", detail:"3 × 8–10 opakování", restSec:60, workSec:40, pose:"pushup", tags:["prsa","paže","střed těla"],
+        lv:{ e:{ d:"Pomalé kliky od stěny nebo s koleny na zemi. Tempo klidné, výdech nahoru.", z:"Nižší opěra rukou (stůl), kratší rozsah nebo víc opakování v klidu.", r:"Bolí záda? Zpevni břicho, dívej se pod sebe. Ramena: užší úchop, neprověšuj lopatky." }, m:{ d:"Klasické kliky v rovině, lokty u těla, střed drž pevně.", z:"Přidej pomalé klesání (3 s dolů) nebo jedno nohu nahoře u sebe.", r:"Bedra nesmí klesat — když ano, vrať se ke stěně nebo kolenům." }, h:{ d:"Rychlejší tempo, plný rozsah, můžeš nohy na nízkém schodu.", z:"Negativa pomalu, nebo úzký úchop pro větší nárok.", r:"Klouby na únavu: zkrátit počet a zkontrolovat techniku." } } },
+      { icon:"🦵", name:"Dřepy", detail:"3 × 10–12 opakování", restSec:55, workSec:45, pose:"squat", tags:["nohy","kyčle","stehna"],
+        lv:{ e:{ d:"Mělký dřep, tempo volnější, váha na patách.", z:"Hloubku přidej jen když kolena drží stopu.", r:"Bolí kolena? Menší hloubka, širší rozchod, kolena nad prsty." }, m:{ d:"Střední hloubka, rovná páteř, střed aktivní.", z:"Krátká pauza dole nebo pomalejší výstup.", r:"Únava v bedrech: zkrátit dosah, nebo dřep u zdi." }, h:{ d:"Hlubší nebo rychlejší výstup (bez odskoku).", z:"Výdrž dole 2–3 s nebo pulzy v poloviční hloubce.", r:"Akutní bolest v koleni — přeruš a zvol lehčí variantu." } } },
+      { icon:"🌉", name:"Zvedání pánve ležmo", detail:"3 × 12 opakování", restSec:45, workSec:40, pose:"bridge", tags:["hýždě","záda","kyčle"],
+        lv:{ e:{ d:"Leh na zádech, chodidla na zemi, zvedej pánev pomalu, stlač hýždě.", z:"Výdrž nahoře 2 s nebo kratší dosah.", r:"Záda: ne přehýbat bedra — pohyb z kyčlí." }, m:{ d:"Plný zdvih, rovná linie od ramen ke kolenům.", z:"Jedna noha nahoře (střídavě) pro větší zátěž.", r:"Bederní bolest: menší rozsah, pomalejší." }, h:{ d:"Rychlejší série nebo výdrž nahoře 5–8 s.", z:"Pulzy nahoře nebo úzký rozchod chodidel.", r:"Třeštění v kříži — zastav, zvol lehčí úroveň." } } },
+      { icon:"🚶", name:"Výpad jednou nohou vpřed", detail:"3 × 8 opakování / noha", restSec:60, workSec:40, pose:"lunge", tags:["nohy","vyvážení"],
+        lv:{ e:{ d:"Krátký krok vpřed, kolena v pravém úhlu, tempo klidné.", z:"Opření o zeď nebo židli.", r:"Koleno vpřed netlač přes prsty. Bolí čéška — kratší krok." }, m:{ d:"Střední krok, trup rovný, střídavě nohy.", z:"Výdrž dole 1 s nebo jemný pulz.", r:"Kolena nestabilní: užší režim nebo výpad vzad." }, h:{ d:"Dynamičtější střídání nohou (bez skoku).", z:"Druhá noha lehce zvednutá vzadu mezi opakováními.", r:"Otok nebo ostrá bolest — nahradit krokem bokem." } } },
+      { icon:"⚡", name:"Prkno (vzpěr na rukou)", detail:"3 × 20–30 sekund výdrž", restSec:45, workSec:30, pose:"plank", tags:["střed těla","ramena"],
+        lv:{ e:{ d:"Prkno na kolenou nebo vyšší ruce (lavice).", z:"Kratší interval nebo přerušení každých 10 s.", r:"Bolí záda? Zvedni kyčle mírně nahoru (klidnější bedra)." }, m:{ d:"Klasické prkno, lokty pod rameny, tělo v rovině.", z:"Lehce posouvej nohy nebo dotýkej se ramen.", r:"Zápěstí: pěst nebo úhel rukou upravit." }, h:{ d:"Délka výdrže nebo mírné sunutí vpřed vzad.", z:"Zvedání nohou střídavě v prknu.", r:"Třes v bedrech — konec, přejdi na kolena." } } },
     ]},
-  { name:"KARDIO (JEMNÉ)", planLabel:"Kardio jemné", meta:"~18 min · 5 cvičení", kcal:110, min:18,
+  { name:"KARDIO (JEMNÉ)", planLabel:"Kardio jemné", planIcon:"🏃", meta:"5 cviků", kcal:110, min:18, lenKey:"mid",
     exercises:[
-      { icon:"🚶", name:"Pochod na místě", detail:"3 × 45 sekund", restSec:25, workSec:45,
-        tip:"Klidné tempo, mírně vyšší kolena — žádný sprint." },
-      { icon:"🤸", name:"Panák bez skoku", detail:"3 × 20 opakování", restSec:30, workSec:35,
-        tip:"Stoj rozkročmo, ruce občas nad hlavu jako figurka v člověče nezlob se — ale neposkakuj, jen přehazuj váhu a zvedej lehce kolena. Bolí ramena? Jen nohy a klidnější paže." },
-      { icon:"🧗", name:"Přitahování kolen v prknu", detail:"3 × 20 sekund", restSec:30, workSec:35,
-        tip:"V „klikové“ poloze (ruce pod rameny, tělo rovné) střídavě přitahuj jedno koleno pod hrudník, pak druhé — pomalu, bez výskoků." },
-      { icon:"↔️", name:"Kroky do strany", detail:"3 × 10 kroků / směr", restSec:30, workSec:35,
-        tip:"Postav se bokem ke směru chůze: vykročí jedna noha do strany, druhá následuje. Žádné skoky." },
-      { icon:"🦵", name:"Dřep bez odskoku", detail:"3 × 12 opakování", restSec:35, workSec:40,
-        tip:"Normální dřep dolů a nahoru — bez odrazu a bez výskoku od země." },
+      { icon:"🚶", name:"Pochod na místě", detail:"3 × 45 sekund", restSec:25, workSec:45, pose:"march", tags:["kardio","nohy"],
+        lv:{ e:{ d:"Velmi klidný pochod, nízká kolena.", z:"Přidej vědomé stažení břicha.", r:"Kolena bolí — menší krok, měkčí obuv." }, m:{ d:"Střední tempo, kolena občas výš.", z:"Zapoj paže (kývání).", r:"Závrať — zpomalit, sednout." }, h:{ d:"Rychlejší tempo stále bez odskoku.", z:"Vysoká kolena 3–5 s v závěru bloku.", r:"Klouby: na tvrdé podložce zkrátit čas." } } },
+      { icon:"🤸", name:"Panák bez skoku", detail:"3 × 20 opakování", restSec:30, workSec:35, pose:"jack", tags:["kardio","ramena","nohy"],
+        lv:{ e:{ d:"Jen nohy do stran, ruce volně nebo v bok.", z:"Kratší kroky do strany.", r:"Ramena: vynech paže nad hlavu." }, m:{ d:"Ruce a nohy střídavě jako panák, bez výskoku.", z:"Přidej pomalé přesuny váhy.", r:"Rotátorová manžeta: menší rozsah paží." }, h:{ d:"Rychlejší přehazování, stále bez odrazu.", z:"Krátké výdrže v rozkroku.", r:"Únava — vrátit se k lehké variantě." } } },
+      { icon:"🧗", name:"Přitahování kolen v prknu", detail:"3 × 20 sekund", restSec:30, workSec:35, pose:"kneeup", tags:["střed těla","kardio"],
+        lv:{ e:{ d:"Vysoké prkno (lavice), kolena k hrudníku pomalu.", z:"Jen jedno koleno opakovaně.", r:"Záda drž rovná — jinak výš ruce." }, m:{ d:"Klasické prkno, střídavá kolena pod trup.", z:"Křížem (pravá ruka — levé koleno) pomalu.", r:"Zápěstí bolí — pěst nebo podložka." }, h:{ d:"Rychlejší střídání s kontrolou pánve.", z:"Krátká výdrž kolene pod hrudníkem.", r:"Bedra klesají — zpomalit nebo výš ruce." } } },
+      { icon:"↔️", name:"Kroky do strany", detail:"3 × 10 kroků / směr", restSec:30, workSec:35, pose:"sidestep", tags:["nohy","kyčle"],
+        lv:{ e:{ d:"Malé kroky, klidné tempo.", z:"Drž se židle.", r:"Koleno dovnitř nepadá — sleduj špičky." }, m:{ d:"Střední krok, pánev neutíká.", z:"Nižší sed (vizuálně) — víc pokrčit.", r:"Koleno: bolest při nášlapu — menší krok." }, h:{ d:"Rychlejší přesuny bez skoku.", z:"Krátká zastavení v kraji s napětím stehna.", r:"Únava — zúžit dráhu kroků." } } },
+      { icon:"🦵", name:"Dřep bez odskoku", detail:"3 × 12 opakování", restSec:35, workSec:40, pose:"squat", tags:["nohy","stehna"],
+        lv:{ e:{ d:"Mělký dřep, pomalé nahoru.", z:"Výdrž nahoře 1 s.", r:"Kolena: hloubku omezit." }, m:{ d:"Plný plynulý dřep bez odrazu.", z:"Pulz ve čtvrtině dolů.", r:"Bedra: nepřeklánět se dopředu přes míru." }, h:{ d:"Rychlejší tempo, stále kontrolovaně.", z:"Pomalé negativy dolů.", r:"Klouby přetížené — snížit počet opakování." } } },
     ]},
-  { name:"PROTAŽENÍ A MOBILITA", planLabel:"Protažení a mobilita", meta:"15 min · 5 cvičení", kcal:45, min:15,
+  { name:"PROTAŽENÍ A MOBILITA", planLabel:"Protažení a mobilita", planIcon:"🧘", meta:"5 cviků", kcal:45, min:15, lenKey:"short",
     exercises:[
-      { icon:"🧘", name:"Předklon vsedě na zemi", detail:"2 × 40 sekund", restSec:15, workSec:40,
-        tip:"Nohy natažené nebo pokrčené — natahuj se rukama ke kotníkům. Netlač páteř silou." },
-      { icon:"🦋", name:"Protahnutí kyčlí vsedě", detail:"2 × 45 sekund", restSec:15, workSec:45,
-        tip:"Chodidla k sobě, kolena spadají do stran k zemi (jako křídla motýlka). Jemně tlač stehna dolů." },
-      { icon:"🐱", name:"Prohýbání zad na čtyřech", detail:"2 × 10 pomalých kol", restSec:15, workSec:35,
-        tip:"Na kolenou a dlaních: střídavě vykleni záda (hlava nahoru) a zakulat záda (hlava mezi paže). Pomalu." },
-      { icon:"🔄", name:"Otočení trupu vsedě", detail:"2 × 8 opakování / strana", restSec:15, workSec:35,
-        tip:"Sed s propnutými zády, ruce před hrudníkem — rotuj trup do strany, ne krkem." },
-      { icon:"🕊️", name:"Protahnutí hýždě v leže", detail:"2 × 30 sekund / strana", restSec:20, workSec:30,
-        tip:"Leh na zádech, jednu kotník přes druhé stehno, přitáhni stehno k hrudi. Bolí koleno? Přeskoč nebo jen jemné přitažení natažené nohy." },
+      { icon:"🧘", name:"Předklon vsedě na zemi", detail:"2 × 40 sekund", restSec:15, workSec:40, pose:"sitstretch", tags:["záda","nohy","mobilita"],
+        lv:{ e:{ d:"Pokrčené nohy, předklon v klidu, bez trhání.", z:"Ručník pod kolena.", r:"Akutní bolest v ploténce — jen mini rozsah." }, m:{ d:"Nohy natažené nebo mírně pokrčené, nádech výdech do protažení.", z:"Přidej jemné kývání prstů na nohy.", r:"Šíje: nezajídat bradu." }, h:{ d:"Delší výdrž v mírném tahu, stále pasivněji než u síly.", z:"Střídavě jedna noha ohnutá.", r:"Brnění — okamžitě uvolni." } } },
+      { icon:"🦋", name:"Protahnutí kyčlí vsedě", detail:"2 × 45 sekund", restSec:15, workSec:45, pose:"butterfly", tags:["kyčle","mobilita"],
+        lv:{ e:{ d:"Kolena výš, jemný tlak stehen dolů.", z:"Podložka pod kosti sedací.", r:"Kolena bolí — menší úhel, vyšší sed." }, m:{ d:"Motýlek, rovná páteř, dech do kyčlí.", z:"Lehce pokyvuj stehny.", r:"Úpon v tříslech ostrý — uvolnit tlak." }, h:{ d:"Delší klidná výdrž s hlubším dechem.", z:"Předklon z rovných zad (mírně).", r:"Klouby: nepřitlačovat kolena silou." } } },
+      { icon:"🐱", name:"Prohýbání zad na čtyřech", detail:"2 × 10 pomalých kol", restSec:15, workSec:35, pose:"catcow", tags:["záda","krk","mobilita"],
+        lv:{ e:{ d:"Malý rozsah v prohnutí a zakulacení.", z:"Dlaně pod rameny, pomalu.", r:"Záda po operaci — jen s lékařem." }, m:{ d:"Kočka–kráva, hlava sleduje pohyb, ne šije.", z:"Prodluž výdech v zakulacení.", r:"Zápěstí: pěst nebo podložka." }, h:{ d:"Plný plynulý rozsah bez trhání.", z:"Jemná rotace pánve v neutrální poloze mezi koly.", r:"Závrať — hlavu zvedat pomaleji." } } },
+      { icon:"🔄", name:"Otočení trupu vsedě", detail:"2 × 8 opakování / strana", restSec:15, workSec:35, pose:"twist", tags:["záda","trup","mobilita"],
+        lv:{ e:{ d:"Úzký otoč trupu, ruce volně před hrudníkem.", z:"Sed na židli s opěradlem.", r:"Bolí mezi lopatkami — menší úhel." }, m:{ d:"Rotace z hrudníku, pohled sleduje dlaň.", z:"Výdrž 2 s v koncové poloze.", r:"Krk netoč — drž střed." }, h:{ d:"Větší rozsah s kontrolou, plynule.", z:"Protáhni paži za sebe v klidu.", r:"Bederní diskomfort — zmenši rotaci." } } },
+      { icon:"🕊️", name:"Protahnutí hýždě v leže", detail:"2 × 30 sekund / strana", restSec:20, workSec:30, pose:"pigeon", tags:["kyčle","hýždě","mobilita"],
+        lv:{ e:{ d:"Leh na zádech, kotník na stehno, tah jemný.", z:"Obě chodidla na zemi (figura čtyřka lehčeji).", r:"Koleno horní nohy bolí — neprotahuj silou." }, m:{ d:"Střední tah stehna k hrudi, dech uvolňuje.", z:"Protáhni druhou stranu déle pokud je asymetrie.", r:"Kyčel ostrá bolest — přeskoč cvik." }, h:{ d:"Delší klidná výdrž, bez kývání.", z:"Jemný tlak na stehno rukou.", r:"Kolena úzký kanál — mělčí úhel." } } },
     ]},
-  { name:"CORE A ZÁDA", planLabel:"Core a záda", meta:"~22 min · 5 cvičení", kcal:75, min:22,
+  { name:"CORE A ZÁDA", planLabel:"Core a záda", planIcon:"🎯", meta:"5 cviků", kcal:75, min:22, lenKey:"mid",
     exercises:[
-      { icon:"⚡", name:"Prkno na loktech", detail:"3 × 20 sekund výdrž", restSec:40, workSec:25,
-        tip:"Na předloktích a špičkách (nebo kolen), tělo rovné. Nepropadej bedry k zemi." },
-      { icon:"🦸", name:"Zvedání trupu ležmo na břiše", detail:"3 × 8 opakování", restSec:35, workSec:30,
-        tip:"Leh na břiše, ruce natažené vpřed nebo podél těla — zvedni hrudník a paže málo nad podlahu. Bez švihů." },
-      { icon:"🐞", name:"Střídavé natažení ruky a nohy na zádech", detail:"3 × 8 / strana (pomalu)", restSec:35, workSec:35,
-        tip:"Leh na zádech, kolena pokrčená. Bedra přitiskni k podložce a střídavě natahuj nad hlavu jednu paži a protilehlou nohu." },
-      { icon:"📐", name:"Prkno na jednom boku", detail:"2 × 15 sekund / strana", restSec:40, workSec:30,
-        tip:"Leh na boku, opři se o loket, zvedni boky — tělo jako šikmé prkno. Snadněji: kolena na zemi." },
-      { icon:"🌉", name:"Zvedání pánve + krátká výdrž", detail:"3 × 10 zvednutí, pak 10 s nahoře", restSec:40, workSec:45,
-        tip:"Jako u celotělového můstku: na zádech zvedej pánev a nahoře chvíli drž." },
+      { icon:"⚡", name:"Prkno na loktech", detail:"3 × 20 sekund výdrž", restSec:40, workSec:25, pose:"plank", tags:["střed těla","záda","ramena"],
+        lv:{ e:{ d:"Prkno na kolenech nebo vysoké ruce.", z:"Kratší série.", r:"Bedra: kyčle výš = méně tlaku." }, m:{ d:"Lokty pod rameny, tělo rovné.", z:"Kýv boky stranou pomalu.", r:"Bolest v dolním zádech — přeruš." }, h:{ d:"Délka nebo úzké prkno na loktech.", z:"Zvedání nohou střídavě.", r:"Forma padá — vrať se na kolena." } } },
+      { icon:"🦸", name:"Zvedání trupu ležmo na břiše", detail:"3 × 8 opakování", restSec:35, workSec:30, pose:"superman", tags:["záda","paže"],
+        lv:{ e:{ d:"Malý zdvih hrudníku, ruce podél těla.", z:"Dlouhá pauza nahoře.", r:"Akutní bolest — přeskoč." }, m:{ d:"Zdvih hrudníku a paží, bez švihu.", z:"Výdrž 2 s nahoře.", r:"Krk nehyperextendovat." }, h:{ d:"Vyšší zdvih nebo pomalé negativy.", z:"Ruce vpřed jako superman.", r:"Bedra: nepřehánět rozsah." } } },
+      { icon:"🐞", name:"Střídavé natažení ruky a nohy na zádech", detail:"3 × 8 / strana (pomalu)", restSec:35, workSec:35, pose:"bird", tags:["záda","střed těla"],
+        lv:{ e:{ d:"Jen natažení paže, noha zůstane.", z:"Kratší držení v nahoře.", r:"Bedra musí zůstat u podložky." }, m:{ d:"Protilehlá paže a noha, pomalu střídat.", z:"Výdrž 3 s v natažení.", r:"Kyčel křičí — menší výška nohy." }, h:{ d:"Plynulejší přechody, delší série.", z:"Lehce zvedni hlavu (brada k hrudníku).", r:"Bolest v bedrech — přeruš." } } },
+      { icon:"📐", name:"Prkno na jednom boku", detail:"2 × 15 sekund / strana", restSec:40, workSec:30, pose:"sideplank", tags:["střed těla","boky"],
+        lv:{ e:{ d:"Kolena pokrčená, bok v mírném zdvihu.", z:"Zkrátit čas na stranu.", r:"Rameno bolí — vyšší loket nebo přeskoč." }, m:{ d:"Klasic. bokoplán, loket pod ramenem.", z:"Horní noha vpřed pro stabilitu.", r:"Zápěstí — podložit." }, h:{ d:"Nohy natažené, delší výdrž.", z:"Horní noha zvednutá.", r:"Klesáš v pánvi — opři se o zeď." } } },
+      { icon:"🌉", name:"Zvedání pánve + krátká výdrž", detail:"3 × 10 zvednutí, pak 10 s nahoře", restSec:40, workSec:45, pose:"bridge", tags:["hýždě","záda"],
+        lv:{ e:{ d:"Nižší zdvih, krátká výdrž nahoře.", z:"Menší počet opakování.", r:"Šíje: nezvedat bradu." }, m:{ d:"Plný můstek s pauzou nahoře.", z:"Úzký rozchod chodidel.", r:"Bedra: pohyb z hýždí." }, h:{ d:"Rychlejší zdvihy s kontrolou nebo jednonožky střídavě.", z:"Pulzy nahoře.", r:"Třeštění — stop, lehčí varianta." } } },
     ]},
-  { name:"NOHY A HÝŽDĚ", planLabel:"Nohy a hýždě", meta:"~25 min · 5 cvičení", kcal:115, min:25,
+  { name:"NOHY A HÝŽDĚ", planLabel:"Nohy a hýždě", planIcon:"🦵", meta:"5 cviků", kcal:115, min:25, lenKey:"long",
     exercises:[
-      { icon:"🦵", name:"Dřep a chvilku držet dole", detail:"3 × 8 opakování + 5 s ve spodní poloze", restSec:55, workSec:45,
-        tip:"Dřep jen tak hluboko, aby tě nebolela kolena. Paže vpřed pomůžou s rovnováhou." },
-      { icon:"↩️", name:"Krok vzad do výpadu", detail:"3 × 8 opakování / noha", restSec:55, workSec:40,
-        tip:"Stoj u zdi, krok velkým krokem vzad a pokrč obě kolena. Méně zátěž na přední koleno než výpad vpřed." },
-      { icon:"🦶", name:"Zvedání pánve na jedné noze", detail:"3 × 6 / noha", restSec:45, workSec:40,
-        tip:"Leh na zádech, jedna noha pokrčená na zemi, druhá natažená vzhůru — zvedej pánev. Obě nohy na zemi = snazší varianta můstku." },
-      { icon:"🪑", name:"Polosed proti zdi", detail:"3 × 20–30 sekund výdrž", restSec:50, workSec:35,
-        tip:"Záda opřená o stěnu, stehna rovnoběžně se zemí jako bys seděl na neviditelné židli. Kratší výdrž, když pálí stehna." },
-      { icon:"⬆️", name:"Výpony na špičky", detail:"3 × 15 opakování", restSec:40, workSec:30,
-        tip:"Stoj rovně, zvedej paty co nejvýš (lýtka pracují). U židle pro jistotu." },
+      { icon:"🦵", name:"Dřep a chvilku držet dole", detail:"3 × 8 opakování + 5 s ve spodní poloze", restSec:55, workSec:45, pose:"squat", tags:["nohy","stehna","hýždě"],
+        lv:{ e:{ d:"Mělký dřep, krátká pauza dole.", z:"Opření o zeď ve spodní poloze.", r:"Kolena sleduj prsty." }, m:{ d:"Střední hloubka, 3–5 s dole.", z:"Jeden dřep navíc v klidu.", r:"Bedra neutíkej dopředu." }, h:{ d:"Hlouběji nebo déle dole (bez bolesti).", z:"Pulzy v nejspodnější třetině.", r:"Koleno ostrá bolest — konec." } } },
+      { icon:"↩️", name:"Krok vzad do výpadu", detail:"3 × 8 opakování / noha", restSec:55, workSec:40, pose:"revlunge", tags:["nohy","stehna"],
+        lv:{ e:{ d:"Malý krok vzad, kolena v úhlu.", z:"Prsty na zdi.", r:"Koleno zadní nohy jemně dolů." }, m:{ d:"Střední krok vzad, trup vzpřímený.", z:"Výdrž 1 s dole.", r:"Vyvážení — zpomalit." }, h:{ d:"Rychlejší střídání s kontrolou.", z:"Zvedni zadní špičku víc nahoru.", r:"Koleno vpřed netlač dopředu." } } },
+      { icon:"🦶", name:"Zvedání pánve na jedné noze", detail:"3 × 6 / noha", restSec:45, workSec:40, pose:"singleleg", tags:["hýždě","kyčle","záda"],
+        lv:{ e:{ d:"Obě nohy na zemi jako snadný můstek.", z:"Jen jedna strana za sérii.", r:"Bedra neutíkej — střed pevný." }, m:{ d:"Jedna noha nahoře, zdvih pánve rovný.", z:"Pomalu dolů 3 s.", r:"Kyčel klesá — menší rozsah." }, h:{ d:"Rychlejší zdvihy nebo výdrž nahoře.", z:"Protínohu nataženou k nebi drž pevněji.", r:"Křížová bolest — přeruš." } } },
+      { icon:"🪑", name:"Polosed proti zdi", detail:"3 × 20–30 sekund výdrž", restSec:50, workSec:35, pose:"wallsit", tags:["stehna","kolena"],
+        lv:{ e:{ d:"Vyšší pozice (více pokrčeno), kratší čas.", z:"Podložka pod záda.", r:"Koleno ostré — ihned nahoru." }, m:{ d:"Stehna rovnoběžně se zemí.", z:"Přidej 5 s, když držíš.", r:"Záda celá na stěnu." }, h:{ d:"Delší výdrž nebo mírně hlouběji.", z:"Jedna noha nahoře na pár sekund.", r:"Kolena únava třesu — konec série." } } },
+      { icon:"⬆️", name:"Výpony na špičky", detail:"3 × 15 opakování", restSec:40, workSec:30, pose:"calf", tags:["lýtka","nohy"],
+        lv:{ e:{ d:"Malý rozsah, pomalu.", z:"Drž židli.", r:"Úpon Achillovky ostrý — mělčí výpon." }, m:{ d:"Plný výpon, pauza nahoře 1 s.", z:"Na jedné noze střídavě.", r:"Klenba nohy slabá — kratší série." }, h:{ d:"Rychlejší výpony s kontrolou dolů.", z:"Výdrž nahoře 3 s každé 3 opakování.", r:"Koleno nezamikat — měkké." } } },
     ]},
 ];
+
+programs.forEach((p, pi) => {
+  p.filterTags = [...new Set(p.exercises.flatMap((e) => e.tags || []))];
+  const slugs = EXERCISE_IMG_SLUGS[pi];
+  if (slugs) {
+    p.exercises.forEach((ex, ei) => {
+      ex.imgSlug = slugs[ei] || null;
+    });
+  }
+});
+const ALL_BODY_TAGS = [...new Set(programs.flatMap((p) => p.filterTags))].sort((a, b) => a.localeCompare(b, 'cs'));
+const LENGTH_FILTER_LABELS = { short: 'krátká lekce', mid: 'střední', long: 'delší' };
+let exerciseFilterTag = null;
+let exerciseFilterLen = null;
+
+function syncWorkoutHeaderTiming() {
+  const meta = document.getElementById('workoutMeta');
+  if (!meta || !programs[currentProgram]) return;
+  const p = programs[currentProgram];
+  applyEffectiveLessonTimes();
+  const sec = estimateLessonSeconds(currentProgram);
+  const ct = CONTENT_TIER_LABEL[contentTierFromDifficulty()];
+  meta.textContent = `${p.exercises.length} cviků · cca ${formatDuration(sec)} · ${ct}`;
+}
+
+function getExerciseLv(ex, tier) {
+  const L = ex.lv;
+  if (!L) return { d: ex.tip || '', z: '', r: '' };
+  if (tier === 3) return L.x || L.h || L.m || { d: ex.tip || '', z: '', r: '' };
+  const k = tier === 0 ? 'e' : tier === 1 ? 'm' : 'h';
+  return L[k] || L.m || { d: ex.tip || '', z: '', r: '' };
+}
+
+function programMatchesFilter(idx) {
+  const p = programs[idx];
+  if (!p) return false;
+  if (exerciseFilterTag && !(p.filterTags || []).includes(exerciseFilterTag)) return false;
+  if (exerciseFilterLen && p.lenKey !== exerciseFilterLen) return false;
+  return true;
+}
+
+window.clearExerciseFilters = function () {
+  exerciseFilterTag = null;
+  exerciseFilterLen = null;
+  renderProgramFilterChips();
+  renderProgramCards();
+};
+
+window.setExerciseFilterTag = function (tag) {
+  exerciseFilterTag = exerciseFilterTag === tag ? null : tag;
+  renderProgramFilterChips();
+  renderProgramCards();
+};
+
+window.setExerciseFilterLen = function (len) {
+  exerciseFilterLen = exerciseFilterLen === len ? null : len;
+  renderProgramFilterChips();
+  renderProgramCards();
+};
+
+function renderProgramFilterChips() {
+  const host = document.getElementById('exerciseFilterChips');
+  if (!host) return;
+  const allOn = !exerciseFilterTag && !exerciseFilterLen;
+  let html = `<button type="button" class="filter-chip${allOn ? ' active' : ''}" onclick="clearExerciseFilters()">Vše</button>`;
+  html += '<span class="filter-label">Délka</span>';
+  ['short', 'mid', 'long'].forEach((lk) => {
+    html += `<button type="button" class="filter-chip${exerciseFilterLen === lk ? ' active' : ''}" onclick="setExerciseFilterLen('${lk}')">${LENGTH_FILTER_LABELS[lk]}</button>`;
+  });
+  html += '<span class="filter-label">Zóna</span>';
+  ALL_BODY_TAGS.forEach((t) => {
+    const safe = t.replace(/"/g, '&quot;');
+    html += `<button type="button" class="filter-chip${exerciseFilterTag === t ? ' active' : ''}" onclick="setExerciseFilterTag('${safe}')">${t}</button>`;
+  });
+  host.innerHTML = html;
+}
+
+function renderProgramCards() {
+  const scroll = document.getElementById('programCardsHost');
+  if (!scroll) return;
+  const visibleIdx = programs.map((_, i) => i).filter(programMatchesFilter);
+  const filledDots = [3, 2, 1, 3, 4];
+  let html = '';
+  programs.forEach((p, idx) => {
+    if (!programMatchesFilter(idx)) return;
+    const active = idx === currentProgram ? ' active' : '';
+    const fd = filledDots[idx] ?? 3;
+    const dotsHtml = Array.from({ length: 5 }, (_, i) => `<div class="dot${i < fd ? ' filled' : ''}"></div>`).join('');
+    html += `<div class="program-card${active}" role="button" tabindex="0" data-pidx="${idx}" onclick="selectProgram(this,${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectProgram(this,${idx});}">
+        <span class="program-icon">${p.planIcon || '📋'}</span>
+        <div class="program-name">${p.planLabel}</div>
+        <div class="program-meta">${p.exercises.length} cviků · cca ${formatDuration(estimateLessonSeconds(idx))}</div>
+        <div class="program-difficulty">${dotsHtml}</div>
+      </div>`;
+  });
+  if (!html) {
+    scroll.innerHTML =
+      '<p class="program-empty">Žádný program nevyhovuje filtru. Klepni na <strong>Vše</strong>.</p>';
+    return;
+  }
+  scroll.innerHTML = html;
+  if (visibleIdx.length && !visibleIdx.includes(currentProgram)) {
+    const first = scroll.querySelector('.program-card');
+    if (first) selectProgram(first, parseInt(first.dataset.pidx, 10));
+  }
+  syncWorkoutHeaderTiming();
+}
 
 // ═══════════════════════════════════════════
 // TÝDENNÍ PLÁN (Po–Ne, index 0 = pondělí)
@@ -958,39 +1447,63 @@ window.goOutdoorFromPlan = function (kind) {
   showToast('Zvoleno podle plánu — klepni na Zahájit sledování (GPS).');
 };
 
-window.selectProgram = function(card, idx) {
-  document.querySelectorAll('.program-card').forEach(c => c.classList.remove('active'));
-  card.classList.add('active');
+window.selectProgram = function (card, idx) {
+  document.querySelectorAll('#programCardsHost .program-card').forEach((c) => c.classList.remove('active'));
+  if (card) card.classList.add('active');
   currentProgram = idx;
   completedExercises.clear();
   const p = programs[idx];
   document.getElementById('workoutTitle').textContent = p.name;
-  document.getElementById('workoutMeta').textContent = p.meta;
+  syncWorkoutHeaderTiming();
   document.getElementById('startBtn').textContent = 'ZAČÍT TRÉNINK';
   document.getElementById('startBtn').classList.remove('running');
   isRunning = false;
+  applyWorkoutCardTheme();
   renderExercises();
 };
+
+function applyWorkoutCardTheme() {
+  const card = document.querySelector('.workout-card');
+  if (!card) return;
+  card.classList.remove('tier-easy', 'tier-mid', 'tier-hard', 'tier-extra');
+  const t = contentTierFromDifficulty();
+  if (t === 0) card.classList.add('tier-easy');
+  else if (t === 1) card.classList.add('tier-mid');
+  else if (t === 2) card.classList.add('tier-hard');
+  else card.classList.add('tier-extra');
+}
 
 function renderExercises() {
   const prog = programs[currentProgram];
   const list = document.getElementById('exerciseList');
+  if (!list) return;
   list.innerHTML = '';
+  const tier = contentTierFromDifficulty();
+  const tierLabel = CONTENT_TIER_LABEL[tier];
+  const tierDir = TIER_DIR_BY_CONTENT[tier] || 'm';
   prog.exercises.forEach((ex, i) => {
     const done = completedExercises.has(i);
+    const lv = getExerciseLv(ex, tier);
+    const pose = ex.pose || 'squat';
+    const vis = poseSvg(pose, tier);
+    const phases = renderExercisePhaseRow(ex.imgSlug, tierDir);
     list.innerHTML += `
-      <div class="exercise-item ${done?'done':''}" onclick="toggleExercise(${i})">
-        <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
-        <div class="exercise-icon">${ex.icon}</div>
+      <div class="exercise-item ${done ? 'done' : ''}" onclick="toggleExercise(${i})">
+        <div class="exercise-num">${String(i + 1).padStart(2, '0')}</div>
+        <div class="exercise-visual-wrap" aria-hidden="true">${vis}<span class="exercise-tier-badge">${tierLabel}</span></div>
         <div class="exercise-info">
-          <div class="exercise-name">${ex.name}</div>
+          <div class="exercise-name">${ex.icon} ${ex.name}</div>
           <div class="exercise-detail">${ex.detail}</div>
-          ${ex.tip ? `<div class="exercise-tip">${ex.tip}</div>` : ''}
+          ${phases}
+          <div class="exercise-lv-desc">${lv.d}</div>
+          <div class="exercise-intensify"><span class="ex-lab">Jak zesílit</span> ${lv.z}</div>
+          <div class="exercise-risk"><span class="ex-lab">Pro dospělé / záda a klouby</span> ${lv.r}</div>
         </div>
-        <div class="exercise-check">${done?'✓':''}</div>
+        <div class="exercise-check">${done ? '✓' : ''}</div>
       </div>`;
   });
   updateProgress();
+  finalizeExercisePhaseImages();
 }
 
 window.toggleExercise = function(i) {
@@ -1008,11 +1521,13 @@ function updateProgress() {
 }
 
 async function checkAllDone() {
+  const viaTimer = completingViaTimer;
   const total = programs[currentProgram].exercises.length;
   if (completedExercises.size === total && total > 0) {
     const prog = programs[currentProgram];
-    showToast('🏆 TRÉNINK DOKONČEN!');
+    showToast('🏆 Trénink dokončen!');
     await saveWorkoutStats(prog.min, prog.kcal);
+    if (!viaTimer) openWorkoutSummaryManual();
   }
 }
 
@@ -1020,71 +1535,387 @@ async function checkAllDone() {
 // TIMER
 // ═══════════════════════════════════════════
 function buildTimerQueue() {
-  const restSec = REST_DURATION_OPTIONS[currentRestIdx] ?? 60;
+  applyEffectiveLessonTimes();
+  const w = lessonWorkSec;
+  const r = lessonRestSec;
   return programs[currentProgram].exercises.flatMap((ex) => [
-    { type: 'work', sec: getScaledWorkSec(ex.workSec), name: ex.name.toUpperCase() },
-    { type: 'rest', sec: restSec, name: 'ODPOČINEK' }
+    { type: 'work', sec: w, name: ex.name.toUpperCase() },
+    { type: 'rest', sec: r, name: 'ODPOČINEK' }
   ]);
 }
 
-window.startWorkout = function() {
-  if (isRunning) { closeTimer(); return; }
+function rebuildTimerQueueFromCurrentIndex() {
+  applyEffectiveLessonTimes();
+  const w = lessonWorkSec;
+  const r = lessonRestSec;
+  const exs = programs[currentProgram].exercises;
+  const idx = timerQueueIndex;
+  const cur = timerQueue[idx];
+  const exIndex = Math.floor(idx / 2);
+  const newQ = [];
+  if (!cur) return;
+  if (cur.type === 'work') {
+    newQ.push({ type: 'work', sec: Math.max(1, timerSeconds), name: cur.name });
+    newQ.push({ type: 'rest', sec: r, name: 'ODPOČINEK' });
+    for (let i = exIndex + 1; i < exs.length; i++) {
+      newQ.push({ type: 'work', sec: w, name: exs[i].name.toUpperCase() });
+      newQ.push({ type: 'rest', sec: r, name: 'ODPOČINEK' });
+    }
+  } else {
+    newQ.push({ type: 'rest', sec: Math.max(1, timerSeconds), name: 'ODPOČINEK' });
+    for (let i = exIndex + 1; i < exs.length; i++) {
+      newQ.push({ type: 'work', sec: w, name: exs[i].name.toUpperCase() });
+      newQ.push({ type: 'rest', sec: r, name: 'ODPOČINEK' });
+    }
+  }
+  timerQueue = newQ;
+  timerQueueIndex = 0;
+}
+
+window.openPreWorkoutModal = function () {
+  if (isRunning) {
+    closeTimer();
+    return;
+  }
+  applyEffectiveLessonTimes();
+  const modal = document.getElementById('preWorkoutModal');
+  if (!modal) return;
+  const n = programs[currentProgram].exercises.length;
+  document.getElementById('preWorkLessonTotal').textContent = formatDuration(n * (lessonWorkSec + lessonRestSec));
+  document.getElementById('preWorkSliderW').value = String(lessonWorkSec);
+  document.getElementById('preWorkSliderR').value = String(lessonRestSec);
+  document.getElementById('preWorkValW').textContent = String(lessonWorkSec);
+  document.getElementById('preWorkValR').textContent = String(lessonRestSec);
+  syncPreWorkPresetButtons();
+  renderPreWorkoutOverview();
+  modal.classList.add('active');
+};
+
+window.closePreWorkoutModal = function () {
+  const modal = document.getElementById('preWorkoutModal');
+  if (modal) modal.classList.remove('active');
+};
+
+window.preWorkSliderChanged = function () {
+  const w = parseInt(document.getElementById('preWorkSliderW').value, 10);
+  const r = parseInt(document.getElementById('preWorkSliderR').value, 10);
+  lessonWorkSec = w;
+  lessonRestSec = r;
+  lessonWorkOverride = w;
+  lessonRestOverride = r;
+  document.getElementById('preWorkValW').textContent = String(w);
+  document.getElementById('preWorkValR').textContent = String(r);
+  document.getElementById('preWorkLessonTotal').textContent = formatDuration(
+    programs[currentProgram].exercises.length * (w + r)
+  );
+  syncPreWorkPresetButtons();
+  renderPreWorkoutOverview();
+};
+
+window.selectPreWorkPreset = function (idx) {
+  timingPresetIdx = idx;
+  lessonWorkOverride = null;
+  lessonRestOverride = null;
+  applyEffectiveLessonTimes();
+  document.getElementById('preWorkSliderW').value = String(lessonWorkSec);
+  document.getElementById('preWorkSliderR').value = String(lessonRestSec);
+  document.getElementById('preWorkValW').textContent = String(lessonWorkSec);
+  document.getElementById('preWorkValR').textContent = String(lessonRestSec);
+  const n = programs[currentProgram].exercises.length;
+  document.getElementById('preWorkLessonTotal').textContent = formatDuration(n * (lessonWorkSec + lessonRestSec));
+  syncPreWorkPresetButtons();
+  renderPreWorkoutOverview();
+  persistTrainingPrefs().catch(() => {});
+};
+
+function syncPreWorkPresetButtons() {
+  document.querySelectorAll('.prework-preset-btn').forEach((b) => {
+    const i = parseInt(b.dataset.preset, 10);
+    const match =
+      lessonWorkOverride == null &&
+      lessonRestOverride == null &&
+      i === timingPresetIdx &&
+      lessonWorkSec === LESSON_TIMING_PRESETS[i].work &&
+      lessonRestSec === LESSON_TIMING_PRESETS[i].rest;
+    b.classList.toggle('active', !!match);
+  });
+}
+
+function renderPreWorkoutOverview() {
+  const el = document.getElementById('preWorkoutOverview');
+  if (!el) return;
+  applyEffectiveLessonTimes();
+  const w = lessonWorkSec;
+  const r = lessonRestSec;
+  let html = '<ul class="prework-list">';
+  programs[currentProgram].exercises.forEach((ex, i) => {
+    html += `<li><strong>${i + 1}. ${ex.name}</strong> · cvik ${w} s · pauza ${r} s</li>`;
+  });
+  html += '</ul>';
+  el.innerHTML = html;
+}
+
+window.togglePreWorkOverview = function () {
+  const box = document.getElementById('preWorkoutOverview');
+  const btn = document.getElementById('preWorkOverviewToggle');
+  if (!box || !btn) return;
+  const open = box.style.display !== 'block';
+  box.style.display = open ? 'block' : 'none';
+  btn.textContent = open ? 'Skrýt přehled' : 'Přehled lekce';
+};
+
+window.confirmStartWorkout = async function () {
+  closePreWorkoutModal();
+  sessionWorkSecondsDone = 0;
+  lastTimerFinishWasComplete = false;
+  timerPaused = false;
   isRunning = true;
   document.getElementById('startBtn').textContent = 'ZASTAVIT';
   document.getElementById('startBtn').classList.add('running');
   timerQueue = buildTimerQueue();
   timerQueueIndex = 0;
-  startTimerPhase();
   document.getElementById('timerOverlay').classList.add('active');
+  applyTimerThemeClass();
+  startTimerPhase();
+  try {
+    await persistTrainingPrefs();
+  } catch (e) {}
 };
 
+window.startWorkout = function () {
+  if (isRunning) {
+    closeTimer();
+    return;
+  }
+  openPreWorkoutModal();
+};
+
+window.openTimerAdjustModal = function () {
+  document.getElementById('timerAdjustW').value = String(lessonWorkSec);
+  document.getElementById('timerAdjustR').value = String(lessonRestSec);
+  document.getElementById('timerAdjustModal').classList.add('active');
+};
+
+window.closeTimerAdjustModal = function () {
+  document.getElementById('timerAdjustModal').classList.remove('active');
+};
+
+window.applyTimerAdjustFromModal = function () {
+  const w = parseInt(document.getElementById('timerAdjustW').value, 10);
+  const r = parseInt(document.getElementById('timerAdjustR').value, 10);
+  lessonWorkSec = Math.max(10, Math.min(90, w));
+  lessonRestSec = Math.max(10, Math.min(120, r));
+  lessonWorkOverride = lessonWorkSec;
+  lessonRestOverride = lessonRestSec;
+  timerPaused = false;
+  const pb = document.getElementById('timerPauseBtn');
+  if (pb) pb.textContent = 'PAUZA';
+  const ov = document.getElementById('timerOverlay');
+  if (ov) ov.classList.remove('timer-paused');
+  rebuildTimerQueueFromCurrentIndex();
+  closeTimerAdjustModal();
+  refreshTrainingSettingsUi();
+  applyTimerThemeClass();
+  startTimerPhase();
+  persistTrainingPrefs().catch(() => {});
+};
+
+function applyTimerOverlayPhaseClass(phase, warn) {
+  const ov = document.getElementById('timerOverlay');
+  if (!ov) return;
+  ov.classList.remove('timer-phase-work', 'timer-phase-rest', 'timer-phase-warn', 'timer-phase-stop');
+  if (phase === 'work') ov.classList.add('timer-phase-work');
+  else if (phase === 'rest') ov.classList.add('timer-phase-rest');
+  if (warn) ov.classList.add('timer-phase-warn');
+}
+
+function flashTimerStopPulse() {
+  const ov = document.getElementById('timerOverlay');
+  if (!ov) return;
+  ov.classList.add('timer-phase-stop');
+  setTimeout(() => ov.classList.remove('timer-phase-stop'), 420);
+}
+
+function applyTimerThemeClass() {
+  const ov = document.getElementById('timerOverlay');
+  if (!ov) return;
+  ov.classList.remove('timer-theme-easy', 'timer-theme-mid', 'timer-theme-hard');
+  let th = 'mid';
+  if (lessonWorkSec <= 22 && lessonRestSec >= 35) th = 'easy';
+  else if (lessonWorkSec >= 38 && lessonRestSec <= 22) th = 'hard';
+  ov.classList.add(th === 'easy' ? 'timer-theme-easy' : th === 'hard' ? 'timer-theme-hard' : 'timer-theme-mid');
+}
+
 function startTimerPhase() {
-  if (timerQueueIndex >= timerQueue.length) { closeTimer(); checkAllDone(); return; }
+  if (timerPaused) return;
+  if (timerQueueIndex >= timerQueue.length) {
+    lastTimerFinishWasComplete = true;
+    clearInterval(timerInterval);
+    const ovDone = document.getElementById('timerOverlay');
+    if (ovDone) {
+      ovDone.classList.remove(
+        'active',
+        'timer-paused',
+        'timer-theme-easy',
+        'timer-theme-mid',
+        'timer-theme-hard',
+        'timer-phase-stop'
+      );
+    }
+    applyTimerOverlayPhaseClass(null, false);
+    isRunning = false;
+    document.getElementById('startBtn').textContent = 'ZAČÍT TRÉNINK';
+    document.getElementById('startBtn').classList.remove('running');
+    applyTimerOverlayPhaseClass(null, false);
+    completingViaTimer = true;
+    checkAllDone().finally(() => {
+      completingViaTimer = false;
+    });
+    showWorkoutSummaryAfterTimer();
+    return;
+  }
   const phase = timerQueue[timerQueueIndex];
   timerSeconds = timerMax = phase.sec;
+  timerWarnedThisPhase = false;
   document.getElementById('timerExerciseName').textContent = phase.name;
-  document.getElementById('timerPhaseLabel').textContent = phase.type==='work'?'PRACOVNÍ FÁZE':'ODPOČINEK';
-  document.getElementById('timerCount').className = 'timer-count'+(phase.type==='rest'?' rest':'');
+  document.getElementById('timerPhaseLabel').textContent =
+    phase.type === 'work' ? 'CVIČ' : 'PAUZA · odpočinek';
+  const countEl = document.getElementById('timerCount');
+  countEl.className = 'timer-count' + (phase.type === 'rest' ? ' rest' : '');
+  applyTimerOverlayPhaseClass(phase.type, false);
+  playTimerBeep('start');
   updateTimerUI();
   clearInterval(timerInterval);
   timerInterval = setInterval(() => {
+    if (timerPaused) return;
+    const ph = timerQueue[timerQueueIndex];
+    if (ph && timerSeconds === 3 && !timerWarnedThisPhase) {
+      playTimerBeep('warn');
+      timerWarnedThisPhase = true;
+    }
+    if (ph && timerSeconds <= 3 && timerSeconds > 0) {
+      applyTimerOverlayPhaseClass(ph.type, true);
+    } else if (ph) {
+      applyTimerOverlayPhaseClass(ph.type, false);
+    }
     timerSeconds--;
     if (timerSeconds <= 0) {
       clearInterval(timerInterval);
       const donePhase = timerQueue[timerQueueIndex];
-      playTimerBeep(donePhase.type === 'work');
+      playTimerBeep(donePhase.type === 'work' ? 'endWork' : 'endRest');
       if (donePhase.type === 'work') {
+        flashTimerStopPulse();
+        playTimerBeep('stopWork');
+        sessionWorkSecondsDone += donePhase.sec;
         completedExercises.add(Math.floor(timerQueueIndex / 2));
         renderExercises();
       }
       timerQueueIndex++;
       startTimerPhase();
-    } else updateTimerUI();
+    } else {
+      updateTimerUI();
+    }
   }, 1000);
 }
 
 function updateTimerUI() {
   document.getElementById('timerCount').textContent = timerSeconds;
-  const c = 2*Math.PI*100;
-  document.getElementById('timerCircle').style.strokeDashoffset = c*(1-timerSeconds/timerMax);
+  const c = 2 * Math.PI * 100;
+  document.getElementById('timerCircle').style.strokeDashoffset = c * (1 - timerSeconds / timerMax);
 }
 
-window.skipTimer = function() {
+window.toggleTimerPause = function () {
+  timerPaused = !timerPaused;
+  const ov = document.getElementById('timerOverlay');
+  if (ov) ov.classList.toggle('timer-paused', timerPaused);
+  playTimerBeep(timerPaused ? 'pauseIn' : 'pauseOut');
+  document.getElementById('timerPauseBtn').textContent = timerPaused ? 'POKRAČOVAT' : 'PAUZA';
+};
+
+window.skipTimer = function () {
   clearInterval(timerInterval);
-  if (timerQueue[timerQueueIndex]?.type === 'work') {
-    completedExercises.add(Math.floor(timerQueueIndex/2));
+  const ph = timerQueue[timerQueueIndex];
+  if (ph?.type === 'work') {
+    sessionWorkSecondsDone += ph.sec;
+    completedExercises.add(Math.floor(timerQueueIndex / 2));
     renderExercises();
   }
   timerQueueIndex++;
   startTimerPhase();
 };
 
-window.closeTimer = function() {
+window.closeTimer = function () {
   clearInterval(timerInterval);
-  document.getElementById('timerOverlay').classList.remove('active');
+  timerPaused = false;
+  const ov = document.getElementById('timerOverlay');
+  if (ov) {
+    ov.classList.remove(
+      'active',
+      'timer-paused',
+      'timer-theme-easy',
+      'timer-theme-mid',
+      'timer-theme-hard',
+      'timer-phase-stop'
+    );
+  }
+  applyTimerOverlayPhaseClass(null, false);
   isRunning = false;
   document.getElementById('startBtn').textContent = 'ZAČÍT TRÉNINK';
   document.getElementById('startBtn').classList.remove('running');
+  if (document.getElementById('timerPauseBtn'))
+    document.getElementById('timerPauseBtn').textContent = 'PAUZA';
+};
+
+function openWorkoutSummary(opts) {
+  const srcEl = document.getElementById('summarySourceLine');
+  if (srcEl) {
+    srcEl.textContent =
+      opts.source === 'timer'
+        ? 'Dokončeno časovačem.'
+        : 'Dokončeno ručně — odhad času podle aktuální délky cviku v nastavení.';
+  }
+  const elW = document.getElementById('summaryWorkSec');
+  const elK = document.getElementById('summaryKcal');
+  const elR = document.getElementById('summaryRec');
+  if (elW) elW.textContent = String(opts.workSeconds);
+  if (elK) elK.textContent = String(opts.kcalEst);
+  if (elR) elR.textContent = opts.rec;
+  const sm = document.getElementById('workoutSummaryModal');
+  if (sm) sm.classList.add('active');
+}
+
+function openWorkoutSummaryManual() {
+  applyEffectiveLessonTimes();
+  const prog = programs[currentProgram];
+  const n = prog.exercises.length;
+  const workSeconds = n * lessonWorkSec;
+  const nominal = prog.exercises.reduce((s, ex) => s + (ex.workSec || 30), 0);
+  const ratio = nominal > 0 ? workSeconds / nominal : 1;
+  const kcalEst = Math.max(8, Math.round(prog.kcal * Math.min(1.4, ratio)));
+  let rec = 'Dobrá práce — zkus příště lekci s časovačem pro přesnější přehled.';
+  if (timingPresetIdx === 0) rec += ' Lehký rytmus ti sedí na rozjezd; až budeš chtít, přejdi na střední.';
+  else if (timingPresetIdx === 1) rec += ' Střední rytmus je univerzální — podle pocitu můžeš zkusit obtížnější.';
+  else rec += ' Máš náročný rytmus — hlídej regeneraci.';
+  openWorkoutSummary({ source: 'manual', workSeconds, kcalEst, rec });
+}
+
+function showWorkoutSummaryAfterTimer() {
+  if (!lastTimerFinishWasComplete) return;
+  lastTimerFinishWasComplete = false;
+  const prog = programs[currentProgram];
+  const nominal = prog.exercises.reduce((s, ex) => s + (ex.workSec || 30), 0);
+  const ratio = nominal > 0 ? sessionWorkSecondsDone / nominal : 1;
+  const kcalEst = Math.max(8, Math.round(prog.kcal * Math.min(1.4, ratio)));
+  let rec = 'Pokračuj podle plánu — jsi na dobré cestě.';
+  if (timingPresetIdx === 0) rec = 'Zkus příště střední rytmus (30 s cvik / 30 s pauza), pokud ti to sedí.';
+  else if (timingPresetIdx === 1) rec = 'Jestli zvládáš techniku v klidu, zkus obtížnější rytmus (40 s cvik / 20 s pauza).';
+  else rec = 'Skvělá intenzita — dej pozor na regeneraci a spánek.';
+  openWorkoutSummary({ source: 'timer', workSeconds: sessionWorkSecondsDone, kcalEst, rec });
+}
+
+window.closeWorkoutSummaryModal = function () {
+  const sm = document.getElementById('workoutSummaryModal');
+  if (sm) sm.classList.remove('active');
 };
 
 // ═══════════════════════════════════════════
@@ -1114,28 +1945,74 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
 });
+const ONBOARD_KEY = 'schoolfit_tour_v1';
+let onboardingStep = 0;
+function renderOnboardingStep() {
+  const body = document.getElementById('onboardBody');
+  if (!body) return;
+  const texts = [
+    'Nahoře přepínač Doma / Venku. Doma vybíráš program posuvníkem karet — můžeš filtrovat podle délky lekce nebo části těla.',
+    'V Profilu nastavíš úroveň návodu u cviků (až Extra) a hlasitost signálů — barvy karty a obrázky fází se mění s úrovní.',
+    'Před startem si v okně zvolíš rytmus (cvik / pauza v sekundách) a uvidíš celkový čas. Zvuk v Profilu zapneš/vypneš a ztlumíš.',
+    'Začni tlačítkem níže. Během lekce: zelený nádech = cvič, oranžová = poslední 3 sekundy, červený akcent = pauza. Pauzu a změnu času najdeš v překryvu.'
+  ];
+  body.textContent = texts[onboardingStep] || '';
+  const sn = document.getElementById('onboardStepNum');
+  if (sn) sn.textContent = String(onboardingStep + 1);
+  const next = document.getElementById('onboardNextBtn');
+  if (next) next.textContent = onboardingStep >= 3 ? 'Hotovo' : 'Další';
+}
+function maybeShowOnboardingTour() {
+  if (localStorage.getItem(ONBOARD_KEY)) return;
+  const t = document.getElementById('onboardingTour');
+  if (!t) return;
+  onboardingStep = 0;
+  t.classList.add('active');
+  renderOnboardingStep();
+}
+window.nextOnboardingStep = function () {
+  onboardingStep++;
+  if (onboardingStep >= 4) {
+    localStorage.setItem(ONBOARD_KEY, '1');
+    const t = document.getElementById('onboardingTour');
+    if (t) t.classList.remove('active');
+    return;
+  }
+  renderOnboardingStep();
+};
+window.skipOnboardingTour = function () {
+  localStorage.setItem(ONBOARD_KEY, '1');
+  const t = document.getElementById('onboardingTour');
+  if (t) t.classList.remove('active');
+};
+
 registerServiceWorker();
 tryAutoLogin();
 </script>
 
 <style>
   :root {
-    --bg: #0a0a0a;
-    --surface: #111111;
-    --surface2: #1a1a1a;
-    --accent: #e8ff3a;
-    --accent2: #ff4d4d;
-    --text: #f0f0f0;
-    --muted: #555;
-    --border: #222;
+    --bg: #14121c;
+    --surface: #1e1c2a;
+    --surface2: #28263a;
+    --accent: #ffe566;
+    --accent-mint: #7ddfb8;
+    --accent-sky: #8ec5ff;
+    --accent-coral: #ff8fab;
+    --accent2: #ff6b8a;
+    --text: #f5f3fc;
+    --muted: #9490a8;
+    --border: #35324a;
+    --card-accent-bg: rgba(255, 229, 102, 0.1);
+    --glow-warm: rgba(255, 200, 120, 0.15);
   }
 
   * { margin:0; padding:0; box-sizing:border-box; }
 
   body {
-    background: var(--bg);
+    background: linear-gradient(165deg, #1a1630 0%, var(--bg) 42%, #121c24 100%);
     color: var(--text);
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Nunito', 'DM Sans', sans-serif;
     min-height: 100vh;
     overflow-x: hidden;
   }
@@ -1143,15 +2020,19 @@ tryAutoLogin();
   body::before {
     content:'';
     position:fixed; inset:0;
-    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
-    pointer-events:none; z-index:1000; opacity:0.5;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(255, 143, 171, 0.12) 0%, transparent 55%),
+      radial-gradient(ellipse 70% 40% at 100% 20%, rgba(142, 197, 255, 0.1) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 50% at 50% 100%, rgba(125, 223, 184, 0.08) 0%, transparent 45%);
+    pointer-events:none; z-index:0;
   }
 
   /* ── AUTH SCREEN ── */
   #authScreen {
+    position:relative; z-index:1;
     display:flex; align-items:center; justify-content:center;
     min-height:100vh; padding:2rem;
-    background: radial-gradient(ellipse at 30% 20%, #1a1e00 0%, var(--bg) 60%);
+    background: radial-gradient(ellipse at 30% 15%, rgba(255, 229, 102, 0.14) 0%, var(--bg) 55%);
   }
 
   .auth-box {
@@ -1221,7 +2102,7 @@ tryAutoLogin();
     cursor:pointer; margin-top:0.5rem;
     transition:all 0.2s;
   }
-  .auth-btn:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(232,255,58,0.25); }
+  .auth-btn:hover { transform:translateY(-1px); box-shadow:0 6px 22px rgba(255, 229, 102, 0.35); }
   .auth-btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
 
   .auth-switch {
@@ -1281,12 +2162,12 @@ tryAutoLogin();
   }
 
   /* ── APP SCREEN ── */
-  #appScreen { display:none; }
+  #appScreen { display:none; position:relative; z-index:1; }
 
   /* HEADER */
   header {
     position:sticky; top:0; z-index:100;
-    background:rgba(10,10,10,0.9); backdrop-filter:blur(20px);
+    background:rgba(22, 20, 34, 0.88); backdrop-filter:blur(20px);
     border-bottom:1px solid var(--border);
     padding:0 1.5rem; height:58px;
     display:flex; align-items:center; justify-content:space-between;
@@ -1319,7 +2200,7 @@ tryAutoLogin();
   .hero-bg-text {
     position:absolute; top:-1rem; left:-0.5rem;
     font-family:'Bebas Neue',sans-serif; font-size:11rem;
-    color:rgba(232,255,58,0.03); letter-spacing:-4px; line-height:1;
+    color:rgba(255, 200, 150, 0.06); letter-spacing:-4px; line-height:1;
     user-select:none; pointer-events:none;
   }
   .hero-content { position:relative; }
@@ -1388,7 +2269,7 @@ tryAutoLogin();
     text-transform:uppercase; transition:all 0.2s;
   }
   .outdoor-type-btn .ot-ic { font-size:1.6rem; }
-  .outdoor-type-btn.selected { border-color:var(--accent); background:#1a1e00; color:var(--accent); }
+  .outdoor-type-btn.selected { border-color:var(--accent); background:var(--card-accent-bg); color:var(--accent); }
   .outdoor-go { margin:0 1.5rem 1rem; width:calc(100% - 3rem); box-sizing:border-box; }
   .outdoor-go:disabled { opacity:0.45; cursor:not-allowed; }
   .outdoor-live {
@@ -1432,7 +2313,7 @@ tryAutoLogin();
     position:relative; overflow:hidden;
   }
   .program-card:hover { border-color:var(--accent); transform:translateY(-2px); }
-  .program-card.active { border-color:var(--accent); background:#1a1e00; }
+  .program-card.active { border-color:var(--accent-mint); background:var(--card-accent-bg); box-shadow:0 0 0 1px rgba(125, 223, 184, 0.25); }
   .program-card.active::after {
     content:'✓'; position:absolute; top:10px; right:10px;
     width:18px; height:18px; background:var(--accent); color:#000;
@@ -1449,17 +2330,26 @@ tryAutoLogin();
 
   /* WORKOUT CARD */
   .workout-section { padding:0 1.5rem 1.5rem; }
-  .workout-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
-  .workout-header { background:var(--accent); padding:1rem 1.4rem; display:flex; align-items:center; justify-content:space-between; }
-  .workout-header-title { font-family:'Bebas Neue',sans-serif; font-size:1.4rem; letter-spacing:3px; color:#000; }
-  .workout-header-meta { font-size:0.72rem; font-weight:600; color:rgba(0,0,0,0.55); text-transform:uppercase; letter-spacing:1px; }
+  .workout-card { background:var(--surface); border:1px solid var(--border); border-radius:18px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.25); }
+  .workout-header {
+    background: linear-gradient(115deg, #ffe566 0%, #b8f5a8 48%, #7dd3c0 100%);
+    padding:1rem 1.4rem; display:flex; align-items:center; justify-content:space-between;
+  }
+  .workout-header-title { font-family:'Bebas Neue',sans-serif; font-size:1.4rem; letter-spacing:3px; color:#1a1520; }
+  .workout-header-meta { font-size:0.72rem; font-weight:600; color:rgba(26,21,32,0.55); text-transform:uppercase; letter-spacing:1px; }
   .exercise-list { padding:0.8rem; }
   .exercise-item {
-    display:flex; align-items:center; gap:0.8rem;
-    padding:0.8rem; border-radius:10px; margin-bottom:4px;
-    cursor:pointer; transition:all 0.2s; border:1px solid transparent;
+    display:flex; align-items:flex-start; gap:0.8rem;
+    padding:0.85rem; border-radius:14px; margin-bottom:6px;
+    cursor:pointer; transition:transform 0.2s, box-shadow 0.2s, border-color 0.2s, background 0.2s;
+    border:1px solid transparent;
   }
-  .exercise-item:hover { background:var(--surface2); border-color:var(--border); }
+  .exercise-item:hover {
+    background:var(--surface2);
+    border-color:rgba(142, 197, 255, 0.25);
+    transform:translateY(-1px);
+    box-shadow:0 4px 16px rgba(0,0,0,0.2);
+  }
   .exercise-item.done { opacity:0.4; }
   .exercise-item.done .exercise-name { text-decoration:line-through; }
   .exercise-num { font-family:'Bebas Neue',sans-serif; font-size:1.1rem; color:var(--muted); width:22px; text-align:center; flex-shrink:0; }
@@ -1493,7 +2383,7 @@ tryAutoLogin();
     font-family:'Bebas Neue',sans-serif; font-size:1.2rem; letter-spacing:4px;
     cursor:pointer; transition:all 0.2s;
   }
-  .start-btn:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(232,255,58,0.25); }
+  .start-btn:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(255, 229, 102, 0.35); }
   .start-btn.running { background:var(--surface2); color:var(--accent); border:2px solid var(--accent); animation:pulse-ring 1.5s infinite; }
 
   /* WEEK */
@@ -1505,7 +2395,7 @@ tryAutoLogin();
     font-size:0.6rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted);
   }
   .week-day.today { border-color:var(--accent); color:var(--accent); }
-  .week-day.completed { background:#1a1e00; border-color:var(--accent); }
+  .week-day.completed { background:var(--card-accent-bg); border-color:var(--accent-mint); }
   .week-day .day-name { margin-bottom:4px; font-weight:600; }
   .week-day .day-dot { width:5px; height:5px; border-radius:50%; background:var(--border); margin:0 auto; }
   .week-day.completed .day-dot, .week-day.today .day-dot { background:var(--accent); }
@@ -1524,7 +2414,7 @@ tryAutoLogin();
     border-radius:14px; padding:1rem 1.2rem; margin-bottom:0.6rem;
     transition:all 0.2s;
   }
-  .lb-row.lb-me { border-color:var(--accent); background:#1a1e00; }
+  .lb-row.lb-me { border-color:var(--accent-sky); background:var(--card-accent-bg); }
   .lb-rank { font-size:1.4rem; flex-shrink:0; width:32px; text-align:center; }
   .lb-info { flex:1; min-width:0; }
   .lb-name { font-weight:600; font-size:0.9rem; display:flex; align-items:center; gap:6px; }
@@ -1553,7 +2443,7 @@ tryAutoLogin();
   }
   .plan-card-editable:active { opacity:0.92; }
   .plan-card:hover { border-color:var(--muted); }
-  .plan-card.today-plan { border-color:var(--accent); background:#1a1e00; }
+  .plan-card.today-plan { border-color:var(--accent); background:var(--card-accent-bg); }
   .plan-card-outdoor { border-color:rgba(126,184,255,0.35); }
   .plan-card-outdoor.today-plan { background:rgba(126,184,255,0.06); }
   .plan-day-badge { font-family:'Bebas Neue',sans-serif; font-size:0.85rem; letter-spacing:2px; color:var(--muted); min-width:24px; }
@@ -1565,7 +2455,7 @@ tryAutoLogin();
     font-size:0.65rem; letter-spacing:1px; text-transform:uppercase;
     padding:3px 9px; border-radius:100px; border:1px solid var(--border); color:var(--muted);
   }
-  .plan-card-status.done { background:#1a1e00; border-color:var(--accent); color:var(--accent); }
+  .plan-card-status.done { background:var(--card-accent-bg); border-color:var(--accent); color:var(--accent); }
   .plan-card-status.active-status { background:var(--accent); color:#000; border-color:var(--accent); }
   .plan-card-status.rest { color:var(--muted); }
 
@@ -1585,7 +2475,7 @@ tryAutoLogin();
   .profile-stat-card {
     background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.2rem;
   }
-  .profile-stat-card.accent { border-color:var(--accent); background:#1a1e00; }
+  .profile-stat-card.accent { border-color:var(--accent-coral); background:linear-gradient(145deg, var(--card-accent-bg), rgba(255, 143, 171, 0.08)); }
   .profile-stat-num { font-family:'Bebas Neue',sans-serif; font-size:2.5rem; color:var(--accent); line-height:1; }
   .profile-stat-label { font-size:0.65rem; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-top:4px; }
 
@@ -1644,22 +2534,240 @@ tryAutoLogin();
     background:transparent; border:none; color:var(--muted);
     font-size:1.4rem; cursor:pointer; padding:6px; line-height:1;
   }
+  .timer-legend {
+    display:flex; flex-wrap:wrap; gap:10px; justify-content:center;
+    font-size:0.62rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted);
+    max-width:320px;
+  }
+  .tl-go { color:#5fd68a; }
+  .tl-warn { color:#e8a045; }
+  .tl-rest { color:#7eb8ff; }
+  .tl-stop { color:#ff6b6b; }
+  .timer-btn-row { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .timer-overlay.timer-phase-work .timer-progress-circle { stroke:#5fd68a; }
+  .timer-overlay.timer-phase-rest .timer-progress-circle { stroke:#7eb8ff; }
+  .timer-overlay.timer-phase-warn .timer-progress-circle { stroke:#e8a045; }
+  .timer-overlay.timer-phase-warn .timer-count { color:#e8a045; }
+  .timer-overlay.timer-phase-stop .timer-progress-circle {
+    stroke:#ff4444 !important;
+    filter: drop-shadow(0 0 10px rgba(255,80,80,0.85));
+  }
+  .timer-overlay.timer-phase-stop .timer-count { color:#ff6b6b !important; }
+  .timer-overlay.timer-paused { box-shadow:inset 0 0 0 4px rgba(255,77,77,0.45); }
+  .timer-overlay.timer-paused .timer-label { color:#ff6b6b; }
+  .timer-overlay.timer-theme-easy { background: radial-gradient(ellipse at 50% 20%, rgba(91,159,212,0.12) 0%, rgba(0,0,0,0.96) 55%); }
+  .timer-overlay.timer-theme-hard { background: radial-gradient(ellipse at 50% 15%, rgba(232,148,58,0.14) 0%, rgba(0,0,0,0.96) 55%); }
+
+  .page-top-nav { padding:0.5rem 1.5rem 0; }
+  .page-nav-btn {
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:8px 14px; border-radius:100px; font-size:0.75rem; font-weight:600;
+    cursor:pointer; letter-spacing:1px;
+  }
+  .home-lead {
+    font-size:0.78rem; color:var(--muted); line-height:1.45;
+    padding:0 1.5rem 0.75rem;
+  }
+  .filter-chips-wrap {
+    display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    padding:0 1.5rem 0.9rem;
+  }
+  .filter-label {
+    font-size:0.58rem; letter-spacing:2px; text-transform:uppercase;
+    color:var(--muted); margin-right:4px; width:100%; margin-top:4px;
+  }
+  .filter-label:first-of-type { margin-top:0; }
+  .filter-chip {
+    border:1px solid var(--border); background:var(--surface2); color:var(--muted);
+    padding:6px 11px; border-radius:100px; font-size:0.68rem; cursor:pointer;
+    font-family:'DM Sans',sans-serif;
+  }
+  .filter-chip.active { border-color:var(--accent-mint); color:var(--accent); background:var(--card-accent-bg); }
+  .program-empty { color:var(--muted); font-size:0.78rem; padding:1rem 1.5rem; text-align:center; }
+
+  .modal-overlay {
+    position:fixed; inset:0; z-index:520; background:rgba(0,0,0,0.88);
+    display:none; align-items:center; justify-content:center; padding:1.2rem;
+  }
+  .modal-overlay.active { display:flex; }
+  .modal-box {
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:1.4rem; max-width:400px; width:100%; max-height:90vh; overflow-y:auto;
+  }
+  .modal-box-compact { max-width:340px; }
+  .modal-title { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:3px; margin-bottom:0.6rem; }
+  .modal-lead { font-size:0.88rem; margin-bottom:0.5rem; line-height:1.4; }
+  .modal-hint { font-size:0.72rem; color:var(--muted); line-height:1.4; margin-bottom:0.9rem; }
+  .modal-rec { font-size:0.82rem; color:#7eb8ff; line-height:1.45; margin-top:0.6rem; }
+  .prework-presets { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:1rem; }
+  .prework-preset-btn {
+    flex:1; min-width:90px; padding:10px; border-radius:10px; border:1px solid var(--border);
+    background:var(--surface2); color:var(--text); font-size:0.72rem; font-weight:600;
+    cursor:pointer; text-transform:uppercase; letter-spacing:1px;
+  }
+  .prework-preset-btn.active { border-color:var(--accent); color:#1a1520; background:linear-gradient(135deg, rgba(255,229,102,0.35), rgba(125,223,184,0.25)); }
+  .slider-row { display:flex; align-items:center; gap:10px; margin-bottom:0.75rem; font-size:0.78rem; }
+  .slider-row input[type=range] { flex:1; }
+  .modal-num-input {
+    width:100%; padding:10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface2); color:var(--text); font-size:1rem;
+  }
+  .modal-secondary-btn {
+    width:100%; margin-bottom:0.75rem; padding:10px; border-radius:10px;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+    font-size:0.75rem; cursor:pointer;
+  }
+  .prework-overview { font-size:0.75rem; color:var(--muted); margin-bottom:0.75rem; }
+  .prework-list { list-style:none; padding:0; margin:0; }
+  .prework-list li { padding:6px 0; border-bottom:1px solid var(--border); }
+  .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:1rem; flex-wrap:wrap; }
+  .modal-btn {
+    padding:10px 18px; border-radius:10px; border:1px solid var(--border);
+    background:var(--surface2); color:var(--text); font-size:0.8rem; cursor:pointer;
+    font-family:'DM Sans',sans-serif; font-weight:600;
+  }
+  .modal-btn-primary { background:var(--accent); color:#1a1520; border-color:var(--accent); font-weight:700; }
+
+  .onboarding-tour { z-index:530; }
+  .onboarding-box { max-width:360px; }
+  .onboard-badge { font-size:0.65rem; letter-spacing:2px; color:var(--accent); margin-bottom:0.75rem; }
+  .onboard-body { font-size:0.88rem; line-height:1.5; color:var(--text); margin-bottom:1rem; }
+  .onboarding-actions { justify-content:space-between; }
+
+  .workout-card.tier-easy .workout-header {
+    background:linear-gradient(135deg, #5b9fd4 0%, #8ec8f0 100%); color:#0a1620;
+  }
+  .workout-card.tier-mid .workout-header {
+    background:linear-gradient(115deg, #ffe566 0%, #ffc978 100%);
+    color:#1a1520;
+  }
+  .workout-card.tier-hard .workout-header {
+    background:linear-gradient(135deg, #e8943a 0%, #f0b060 100%); color:#1a0f05;
+  }
+  .workout-card.tier-extra .workout-header {
+    background:linear-gradient(135deg, #c83c3c 0%, #ff6b6b 55%, #ff9a8b 100%); color:#1a0505;
+  }
+  .workout-card.tier-easy .workout-header-meta,
+  .workout-card.tier-hard .workout-header-meta,
+  .workout-card.tier-extra .workout-header-meta { color:rgba(0,0,0,0.5); }
+
+  .exercise-visual-wrap {
+    flex-shrink:0; width:56px; display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .ex-pose-svg { width:52px; height:52px; display:block; }
+  .exercise-tier-badge {
+    font-size:0.52rem; letter-spacing:0.5px; text-transform:uppercase;
+    color:var(--muted); text-align:center; line-height:1.1; max-width:56px;
+  }
+  .exercise-lv-desc { font-size:0.78rem; color:var(--text); line-height:1.45; margin-top:6px; }
+  .exercise-intensify, .exercise-risk { font-size:0.7rem; line-height:1.38; margin-top:6px; color:var(--accent-sky); opacity:0.92; }
+  .exercise-risk { color:#e8c49a; }
+  .ex-lab { display:block; font-size:0.58rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; }
+
+  .exercise-phases-wrap {
+    margin:12px 0 10px;
+    padding:12px 12px 10px;
+    border-radius:16px;
+    background: linear-gradient(145deg, rgba(142, 197, 255, 0.07) 0%, rgba(125, 223, 184, 0.06) 50%, rgba(255, 143, 171, 0.05) 100%);
+    border:1px solid rgba(142, 197, 255, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .ex-phases-intro {
+    font-size:0.74rem; color:var(--muted); line-height:1.4; margin-bottom:8px;
+    letter-spacing:0.2px;
+  }
+  .ex-phases-intro-title { color:var(--accent); font-weight:800; font-size:0.8rem; letter-spacing:0.3px; }
+  .ex-phases-links {
+    display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px;
+    font-size:0.7rem; margin-bottom:10px; padding:8px 0 4px;
+    border-bottom:1px dashed rgba(142, 197, 255, 0.2);
+  }
+  .ex-phases-links-lab { color:var(--muted); margin-right:4px; }
+  .ex-phases-links a {
+    color:var(--accent-sky); font-weight:700; text-decoration:none;
+    padding:3px 8px; border-radius:8px; background:rgba(142, 197, 255, 0.12);
+    border:1px solid rgba(142, 197, 255, 0.25);
+  }
+  .ex-phases-links a:hover { color:var(--accent); background:var(--card-accent-bg); border-color:var(--accent); }
+  .ex-phases-links-sep { color:var(--muted); user-select:none; opacity:0.5; }
+  .ex-phases-missing-note code { font-size:0.65rem; background:var(--surface2); padding:1px 5px; border-radius:5px; }
+  .ex-phases-intro-hint { display:inline; color:var(--accent-mint); font-weight:600; }
+  .ex-phases-missing-note {
+    display:none; font-size:0.72rem; color:#f0e0d0; line-height:1.45; margin:0 0 8px;
+    padding:10px 12px; background:linear-gradient(135deg, rgba(255, 139, 154, 0.12), rgba(255, 200, 120, 0.08));
+    border:1px solid rgba(255, 143, 171, 0.35);
+    border-radius:12px;
+  }
+  .ex-phases-gh-tip {
+    font-size:0.68rem; line-height:1.4; color:var(--muted); margin:0 0 8px;
+    padding:8px 10px; background:rgba(255, 229, 102, 0.08); border-radius:10px;
+    border:1px solid rgba(255, 229, 102, 0.2);
+  }
+  .ex-phases-gh-tip code { font-size:0.62rem; background:var(--surface2); padding:1px 5px; border-radius:4px; }
+  .ex-phases-missing-all .ex-phases-intro-hint { display:none; }
+  .ex-phases-missing-all .ex-phases-missing-note { display:block; }
+  .ex-phases-missing-all .exercise-phases { display:none !important; }
+
+  .exercise-phases {
+    display:flex;
+    flex-wrap:wrap; gap:8px;
+    padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.06); border-radius:12px;
+  }
+  .ex-phase {
+    margin:0; flex:1; min-width:72px; max-width:120px; text-align:center;
+  }
+  .ex-phase-missing { display:none; }
+  .ex-phase img {
+    width:100%; aspect-ratio:1; object-fit:contain; border-radius:12px;
+    background:rgba(0,0,0,0.35); border:1px solid rgba(142, 197, 255, 0.15);
+    cursor:zoom-in;
+  }
+  .ex-phase img:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  .ex-phase-lightbox {
+    display:none; position:fixed; inset:0; z-index:545;
+    background:rgba(0,0,0,0.94); flex-direction:column; align-items:center; justify-content:center;
+    padding:1rem; cursor:zoom-out;
+  }
+  .ex-phase-lightbox.active { display:flex; }
+  .ex-phase-lightbox-inner { position:relative; max-width:100%; max-height:calc(100vh - 5rem); cursor:default; }
+  .ex-phase-lightbox-inner img {
+    display:block; max-width:100%; max-height:calc(100vh - 6rem); width:auto; height:auto;
+    object-fit:contain; border-radius:12px; border:1px solid var(--border);
+  }
+  .ex-phase-lightbox-cap {
+    text-align:center; font-size:0.75rem; letter-spacing:2px; text-transform:uppercase;
+    color:var(--muted); margin-top:10px;
+  }
+  .ex-phase-lightbox-close {
+    position:absolute; top:0.75rem; right:0.75rem;
+    background:rgba(30,30,30,0.9); border:1px solid var(--border); color:var(--text);
+    width:40px; height:40px; border-radius:50%; font-size:1.25rem; line-height:1;
+    cursor:pointer; z-index:2;
+  }
+  .ex-phase figcaption {
+    font-size:0.55rem; letter-spacing:0.5px; text-transform:uppercase;
+    color:var(--muted); margin-top:4px; line-height:1.2;
+  }
+
+  .settings-hint { font-size:0.68rem; color:var(--muted); line-height:1.35; margin-top:4px; max-width:220px; }
 
   /* BOTTOM NAV */
   nav {
     position:fixed; bottom:0; left:0; right:0;
-    background:rgba(10,10,10,0.95); backdrop-filter:blur(20px);
-    border-top:1px solid var(--border);
+    background:rgba(22, 20, 34, 0.94); backdrop-filter:blur(20px);
+    border-top:1px solid rgba(142, 197, 255, 0.12);
     padding:0.6rem 0 1rem;
     display:flex; justify-content:space-around; z-index:90;
   }
   .nav-item {
     display:flex; flex-direction:column; align-items:center; gap:3px;
-    cursor:pointer; padding:5px 12px; border-radius:10px;
+    cursor:pointer; padding:5px 12px; border-radius:12px;
     transition:all 0.2s; color:var(--muted);
     font-size:0.58rem; letter-spacing:1px; text-transform:uppercase;
   }
   .nav-item:hover, .nav-item.active { color:var(--accent); }
+  .nav-item.active { background:var(--card-accent-bg); }
   .nav-item .nav-icon { width:20px; height:20px; }
   .nav-item .nav-icon svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 
@@ -1678,9 +2786,9 @@ tryAutoLogin();
   /* ANIMATIONS */
   @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
   @keyframes pulse-ring {
-    0%{box-shadow:0 0 0 0 rgba(232,255,58,0.4)}
-    70%{box-shadow:0 0 0 10px rgba(232,255,58,0)}
-    100%{box-shadow:0 0 0 0 rgba(232,255,58,0)}
+    0%{box-shadow:0 0 0 0 rgba(255, 229, 102, 0.45)}
+    70%{box-shadow:0 0 0 12px rgba(255, 229, 102, 0)}
+    100%{box-shadow:0 0 0 0 rgba(255, 229, 102, 0)}
   }
   .hero-content { animation:fadeUp 0.4s ease both; }
   .stats-row { animation:fadeUp 0.4s 0.08s ease both; }
@@ -1769,7 +2877,7 @@ tryAutoLogin();
 
   <!-- HEADER -->
   <header>
-    <div class="logo">SCHOOL<span>FIT</span></div>
+    <div class="logo" onclick="goHomeNav()" title="Zpět na úvod">SCHOOL<span>FIT</span></div>
     <div class="header-right">
       <div class="streak-badge">
         🔥 <span class="streak-count" id="streakNum">0</span>
@@ -1821,39 +2929,10 @@ tryAutoLogin();
     <div id="todayPlanHint" class="today-plan-hint" style="display:none" aria-live="polite"></div>
 
     <div id="blockHomeTraining">
-    <div class="section-header"><div class="section-title">Programy</div></div>
-    <div class="programs-scroll">
-      <div class="program-card active" onclick="selectProgram(this,0)">
-        <span class="program-icon">💪</span>
-        <div class="program-name">Celé tělo</div>
-        <div class="program-meta">5 cvičení · ~24 min</div>
-        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div></div>
-      </div>
-      <div class="program-card" onclick="selectProgram(this,1)">
-        <span class="program-icon">🏃</span>
-        <div class="program-name">Kardio jemné</div>
-        <div class="program-meta">5 cvičení · ~18 min</div>
-        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-      </div>
-      <div class="program-card" onclick="selectProgram(this,2)">
-        <span class="program-icon">🧘</span>
-        <div class="program-name">Protažení</div>
-        <div class="program-meta">5 cvičení · 15 min</div>
-        <div class="program-difficulty"><div class="dot filled"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-      </div>
-      <div class="program-card" onclick="selectProgram(this,3)">
-        <span class="program-icon">🎯</span>
-        <div class="program-name">Core &amp; záda</div>
-        <div class="program-meta">5 cvičení · ~22 min</div>
-        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div><div class="dot"></div></div>
-      </div>
-      <div class="program-card" onclick="selectProgram(this,4)">
-        <span class="program-icon">🦵</span>
-        <div class="program-name">Nohy &amp; hýždě</div>
-        <div class="program-meta">5 cvičení · ~25 min</div>
-        <div class="program-difficulty"><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot filled"></div><div class="dot"></div></div>
-      </div>
-    </div>
+    <div class="section-header"><div class="section-title">Domácí programy</div></div>
+    <p class="home-lead">Vyber program (filtry podle zóny nebo délky). Úroveň popisů cviků a zvuky upravíš v Profilu.</p>
+    <div class="filter-chips-wrap" id="exerciseFilterChips"></div>
+    <div class="programs-scroll" id="programCardsHost"></div>
 
     <div class="workout-section">
       <div class="workout-card">
@@ -1904,18 +2983,24 @@ tryAutoLogin();
 
   <!-- PAGE: STATISTIKY (žebříček) -->
   <div class="page" id="page-statistiky">
+    <div class="page-top-nav">
+      <button type="button" class="page-nav-btn" onclick="goHomeNav()">← Úvod</button>
+    </div>
     <div class="stats-page">
-      <div class="page-title">ŽEBŘÍČEK</div>
+      <div class="page-title">Žebříček</div>
       <div id="leaderboardList">
-        <div style="color:var(--muted);text-align:center;padding:3rem;font-size:0.85rem;letter-spacing:2px">NAČÍTÁM...</div>
+        <div style="color:var(--muted);text-align:center;padding:3rem;font-size:0.85rem;letter-spacing:2px">Načítám…</div>
       </div>
     </div>
   </div>
 
   <!-- PAGE: PLÁN -->
   <div class="page" id="page-plan">
+    <div class="page-top-nav">
+      <button type="button" class="page-nav-btn" onclick="goHomeNav()">← Úvod</button>
+    </div>
     <div class="plan-page">
-      <div class="page-title">TÝDENNÍ PLÁN</div>
+      <div class="page-title">Týdenní plán</div>
       <p class="plan-hint">Klepni na den — proklikáš <strong>5 domácích programů</strong>, pak <strong>chůzi / běh / kolo venku (GPS)</strong> a nakonec <strong>volno</strong>. Ukládá se k tvému účtu.</p>
       <div id="planWeekList" class="plan-week-list"></div>
     </div>
@@ -1923,8 +3008,11 @@ tryAutoLogin();
 
   <!-- PAGE: PROFIL -->
   <div class="page" id="page-profil">
+    <div class="page-top-nav">
+      <button type="button" class="page-nav-btn" onclick="goHomeNav()">← Úvod</button>
+    </div>
     <div class="profile-page">
-      <div class="page-title">PROFIL</div>
+      <div class="page-title">Profil</div>
       <div class="profile-header">
         <div class="profile-avatar" id="profileAvatarLetter">?</div>
         <div>
@@ -1978,19 +3066,48 @@ tryAutoLogin();
         </div>
       </div>
 
-      <div class="settings-section-label">Nastavení</div>
+      <div class="settings-section-label">Trénink</div>
       <div class="settings-row">
         <div class="settings-item settings-item-action" onclick="cycleDifficulty()">
-          <span class="settings-item-label">Obtížnost</span>
+          <div>
+            <div class="settings-item-label">Úroveň návodu u cviků</div>
+            <div class="settings-hint">Mění popisy, siluety, barvy karty a sadu fází obrázků (až po Extra).</div>
+          </div>
           <span class="settings-item-value" id="settingDifficulty">Střední ›</span>
         </div>
-        <div class="settings-item settings-item-action" onclick="cycleRestDuration()">
-          <span class="settings-item-label">Délka odpočinku</span>
-          <span class="settings-item-value" id="settingRest">60 s ›</span>
+        <div class="settings-item settings-item-action" onclick="cycleLessonTimingPreset()">
+          <div>
+            <div class="settings-item-label">Výchozí rytmus lekce</div>
+            <div class="settings-hint">Délka cviku a pauzy mezi bloky (upravíš i před startem).</div>
+          </div>
+          <span class="settings-item-value" id="settingTiming">Střední (30/30 s) ›</span>
         </div>
         <div class="settings-item">
-          <span class="settings-item-label">Zvukové signály</span>
+          <div>
+            <div class="settings-item-label">Zvukové signály</div>
+            <div class="settings-hint">Start, 3 s před koncem, konec cviku (včetně krátkého „stop“ tónu), pauza v lekci.</div>
+          </div>
           <div class="toggle on" id="soundToggle" onclick="event.stopPropagation();toggleSoundSetting();"></div>
+        </div>
+        <div class="settings-item" style="flex-wrap:wrap;align-items:center;gap:10px" onclick="event.stopPropagation()">
+          <div style="flex:1;min-width:140px">
+            <div class="settings-item-label">Hlasitost signálů</div>
+            <div class="settings-hint">Platí při zapnutém zvuku.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:180px;max-width:280px">
+            <input type="range" id="soundVolumeSlider" min="0" max="100" value="100" oninput="onSoundVolumeInput()" style="flex:1">
+            <span id="soundVolumeLabel" style="font-size:0.72rem;color:var(--muted);min-width:2.5rem">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section-label">O aplikaci</div>
+      <div class="settings-row">
+        <div class="settings-item">
+          <div>
+            <div class="settings-item-label">School Fit</div>
+            <div class="settings-hint">Domácí programy a venkovní aktivity s GPS. Obsah je nastaven šetrně ke kloubům a zádům. Odhady kalorií jsou orientační.</div>
+          </div>
         </div>
       </div>
 
@@ -2006,8 +3123,14 @@ tryAutoLogin();
 
   <!-- TIMER OVERLAY -->
   <div class="timer-overlay" id="timerOverlay">
-    <button class="timer-close" onclick="closeTimer()">✕</button>
-    <div class="timer-exercise-name" id="timerExerciseName">KLIKY</div>
+    <button type="button" class="timer-close" onclick="closeTimer()" title="Zavřít">✕</button>
+    <div class="timer-legend" aria-hidden="true">
+      <span class="tl-item tl-go">cvič</span>
+      <span class="tl-item tl-warn">konec bloku blízko</span>
+      <span class="tl-item tl-rest">pauza</span>
+      <span class="tl-item tl-stop">konec cviku</span>
+    </div>
+    <div class="timer-exercise-name" id="timerExerciseName">Kliky</div>
     <div class="timer-circle">
       <svg class="timer-svg" viewBox="0 0 220 220">
         <circle class="timer-bg-circle" cx="110" cy="110" r="100"/>
@@ -2016,8 +3139,106 @@ tryAutoLogin();
       </svg>
       <span class="timer-count" id="timerCount">30</span>
     </div>
-    <div class="timer-label" id="timerPhaseLabel">PRACOVNÍ FÁZE</div>
-    <button class="timer-skip" onclick="skipTimer()">PŘESKOČIT ›</button>
+    <div class="timer-label" id="timerPhaseLabel">CVIČ</div>
+    <div class="timer-btn-row">
+      <button type="button" class="timer-skip" id="timerPauseBtn" onclick="toggleTimerPause()">PAUZA</button>
+      <button type="button" class="timer-skip" onclick="openTimerAdjustModal()">ČAS</button>
+      <button type="button" class="timer-skip" onclick="skipTimer()">Přeskočit ›</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="preWorkoutModal" aria-modal="true" role="dialog">
+    <div class="modal-box">
+      <h2 class="modal-title">Před startem lekce</h2>
+      <p class="modal-lead">Celkový čas (odhad): <strong id="preWorkLessonTotal">—</strong></p>
+      <p class="modal-hint">Lehké 20 s cvik + 40 s pauza · střední 30/30 · obtížné 40/20. Posuvníky uloží vlastní poměr.</p>
+      <div class="prework-presets">
+        <button type="button" class="prework-preset-btn" data-preset="0" onclick="selectPreWorkPreset(0)">Lehké</button>
+        <button type="button" class="prework-preset-btn" data-preset="1" onclick="selectPreWorkPreset(1)">Střední</button>
+        <button type="button" class="prework-preset-btn" data-preset="2" onclick="selectPreWorkPreset(2)">Obtížné</button>
+      </div>
+      <div class="slider-row">
+        <label for="preWorkSliderW">Cvik (s)</label>
+        <input type="range" id="preWorkSliderW" min="10" max="60" step="5" value="30" oninput="preWorkSliderChanged()">
+        <span id="preWorkValW">30</span>
+      </div>
+      <div class="slider-row">
+        <label for="preWorkSliderR">Pauza (s)</label>
+        <input type="range" id="preWorkSliderR" min="10" max="90" step="5" value="30" oninput="preWorkSliderChanged()">
+        <span id="preWorkValR">30</span>
+      </div>
+      <button type="button" class="modal-secondary-btn" id="preWorkOverviewToggle" onclick="togglePreWorkOverview()">Přehled lekce</button>
+      <div id="preWorkoutOverview" class="prework-overview" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn" onclick="closePreWorkoutModal()">Zrušit</button>
+        <button type="button" class="modal-btn modal-btn-primary" onclick="confirmStartWorkout()">Spustit lekci</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="timerAdjustModal" aria-modal="true" role="dialog">
+    <div class="modal-box modal-box-compact">
+      <h2 class="modal-title">Změna času</h2>
+      <p class="modal-hint">Platí od aktuálního a dalších bloků.</p>
+      <div class="slider-row">
+        <label for="timerAdjustW">Cvik (s)</label>
+        <input type="number" id="timerAdjustW" min="10" max="90" class="modal-num-input" value="30">
+      </div>
+      <div class="slider-row">
+        <label for="timerAdjustR">Pauza (s)</label>
+        <input type="number" id="timerAdjustR" min="10" max="120" class="modal-num-input" value="30">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn" onclick="closeTimerAdjustModal()">Zpět</button>
+        <button type="button" class="modal-btn modal-btn-primary" onclick="applyTimerAdjustFromModal()">Použít</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="workoutSummaryModal" aria-modal="true" role="dialog">
+    <div class="modal-box">
+      <h2 class="modal-title">Lekce hotová</h2>
+      <p class="modal-hint" id="summarySourceLine"></p>
+      <p class="modal-lead">Odcvičeno: <strong id="summaryWorkSec">0</strong> s čistého času cviků.</p>
+      <p class="modal-lead">Odhad energie: <strong id="summaryKcal">0</strong> kcal (orientačně).</p>
+      <p class="modal-rec" id="summaryRec"></p>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn modal-btn-primary" onclick="closeWorkoutSummaryModal()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div
+    class="ex-phase-lightbox"
+    id="exercisePhaseLightbox"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Zvětšený návod ke cviku"
+    onclick="closeExercisePhaseLightbox()"
+  >
+    <button
+      type="button"
+      class="ex-phase-lightbox-close"
+      onclick="event.stopPropagation();closeExercisePhaseLightbox()"
+      title="Zavřít"
+    >
+      ✕
+    </button>
+    <div class="ex-phase-lightbox-inner" onclick="event.stopPropagation()">
+      <img id="exercisePhaseLightboxImg" alt="" />
+      <div class="ex-phase-lightbox-cap" id="exercisePhaseLightboxCap"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay onboarding-tour" id="onboardingTour" aria-modal="true" role="dialog">
+    <div class="modal-box onboarding-box">
+      <div class="onboard-badge">Krok <span id="onboardStepNum">1</span> / 4</div>
+      <p class="onboard-body" id="onboardBody"></p>
+      <div class="modal-actions onboarding-actions">
+        <button type="button" class="modal-btn" onclick="skipOnboardingTour()">Přeskočit</button>
+        <button type="button" class="modal-btn modal-btn-primary" id="onboardNextBtn" onclick="nextOnboardingStep()">Další</button>
+      </div>
+    </div>
   </div>
 
   <!-- BOTTOM NAV -->
