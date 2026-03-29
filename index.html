@@ -2087,7 +2087,8 @@ tryAutoLogin();
   #authScreen {
     position:relative; z-index:1;
     display:flex; align-items:center; justify-content:center;
-    min-height:100vh; padding:2rem;
+    min-height:100vh; min-height:100dvh;
+    padding:max(2rem, env(safe-area-inset-top, 0px)) max(2rem, env(safe-area-inset-right, 0px)) max(2rem, env(safe-area-inset-bottom, 0px)) max(2rem, env(safe-area-inset-left, 0px));
     background: radial-gradient(ellipse at 30% 15%, rgba(255, 229, 102, 0.14) 0%, var(--bg) 55%);
   }
 
@@ -2220,12 +2221,16 @@ tryAutoLogin();
   /* ── APP SCREEN ── */
   #appScreen { display:none; position:relative; z-index:1; }
 
-  /* HEADER */
+  /* HEADER — safe area (notch / status bar) */
   header {
     position:sticky; top:0; z-index:100;
     background:rgba(22, 20, 34, 0.88); backdrop-filter:blur(20px);
     border-bottom:1px solid var(--border);
-    padding:0 1.5rem; height:58px;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: 0;
+    min-height: calc(58px + env(safe-area-inset-top, 0px));
     display:flex; align-items:center; justify-content:space-between;
   }
   .logo { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:4px; color:var(--accent); }
@@ -2248,7 +2253,7 @@ tryAutoLogin();
   }
 
   /* PAGES */
-  .page { display:none; padding-bottom:80px; }
+  .page { display:none; padding-bottom:calc(80px + env(safe-area-inset-bottom, 0px)); }
   .page.active { display:block; }
 
   /* HERO */
@@ -2410,8 +2415,13 @@ tryAutoLogin();
   .exercise-item.done .exercise-name { text-decoration:line-through; }
   .exercise-num { font-family:'Bebas Neue',sans-serif; font-size:1.1rem; color:var(--muted); width:22px; text-align:center; flex-shrink:0; }
   .exercise-icon { font-size:1.3rem; flex-shrink:0; }
-  .exercise-info { flex:1; }
-  .exercise-name { font-weight:600; font-size:0.88rem; margin-bottom:2px; }
+  .exercise-info {
+    flex:1; min-width:0;
+    padding-right:6px;
+    overflow-wrap:break-word;
+    word-wrap:break-word;
+  }
+  .exercise-name { font-weight:600; font-size:0.88rem; margin-bottom:2px; padding-right:2px; }
   .exercise-detail { font-size:0.7rem; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
   .exercise-tip {
     font-size:0.72rem; color:#7eb8ff; line-height:1.4; margin-top:6px;
@@ -2420,7 +2430,8 @@ tryAutoLogin();
   .exercise-check {
     width:26px; height:26px; border:2px solid var(--border);
     border-radius:7px; display:flex; align-items:center; justify-content:center;
-    flex-shrink:0; transition:all 0.2s; font-size:0.75rem;
+    flex-shrink:0; flex-grow:0; transition:all 0.2s; font-size:0.75rem;
+    margin-top:2px;
   }
   .exercise-item.done .exercise-check { background:var(--accent); border-color:var(--accent); color:#000; }
   .progress-bar-wrap {
@@ -2837,12 +2848,12 @@ tryAutoLogin();
 
   .settings-hint { font-size:0.68rem; color:var(--muted); line-height:1.35; margin-top:4px; max-width:220px; }
 
-  /* BOTTOM NAV */
+  /* BOTTOM NAV — home indicator / safe area */
   nav {
     position:fixed; bottom:0; left:0; right:0;
     background:rgba(22, 20, 34, 0.94); backdrop-filter:blur(20px);
     border-top:1px solid rgba(142, 197, 255, 0.12);
-    padding:0.6rem 0 1rem;
+    padding:0.6rem max(0px, env(safe-area-inset-left, 0px)) calc(1rem + env(safe-area-inset-bottom, 0px)) max(0px, env(safe-area-inset-right, 0px));
     display:flex; justify-content:space-around; z-index:90;
   }
   .nav-item {
@@ -2858,7 +2869,7 @@ tryAutoLogin();
 
   /* TOAST */
   #toast {
-    position:fixed; bottom:90px; left:50%;
+    position:fixed; bottom:calc(90px + env(safe-area-inset-bottom, 0px)); left:50%;
     transform:translateX(-50%) translateY(10px);
     background:var(--accent); color:#000;
     font-family:'Bebas Neue',sans-serif; font-size:1rem; letter-spacing:3px;
