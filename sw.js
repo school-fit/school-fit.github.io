@@ -1,5 +1,5 @@
 /* SCHOOL FIT — PWA cache; obrázky vždy z networku (až nahraješ pictures/ na server) */
-const CACHE = 'school-fit-pwa-v6';
+const CACHE = 'school-fit-pwa-v7';
 const PRECACHE = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 function scopeUrl(path) {

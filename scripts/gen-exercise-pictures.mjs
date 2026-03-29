@@ -12,9 +12,11 @@ const EX_ROOT = path.join(__dirname, '..', 'pictures', 'exercises');
 
 const COL = { e: '#5b9fd4', m: '#c5e86d', h: '#e8943a', x: '#ff5c5c' };
 const TIERS = ['e', 'm', 'h', 'x'];
-const CW = 300, CH = 212;
+const CW = 300, CH = 220;
 const PHASE_LABELS = ['VÝCHOZÍ', 'PRŮBĚH', 'ZÁVĚR'];
-const GY = 172; // ground y (feet touch here in standing poses)
+const GY = 170; // ground y (feet touch here in standing poses)
+const FIG = '#1c2240'; // dark navy silhouette colour (all tiers)
+const BG  = '#edf0f8'; // light background
 
 // ── SVG primitives ────────────────────────────────────────────────
 const lm = (x1,y1,x2,y2,c,w) =>
@@ -48,15 +50,17 @@ function ft(x,y,right,c,w=LW.ft) {
 }
 
 // ── Card wrapper ──────────────────────────────────────────────────
-function card(inner, ph, slug) {
+// accent = tier color; used for bottom strip + label text
+function card(inner, accent, ph, slug) {
   const label = PHASE_LABELS[ph-1];
-  const sub = phaseNote(slug, ph);
+  const sub   = phaseNote(slug, ph);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CW} ${CH}" fill="none" aria-hidden="true">
-<rect width="${CW}" height="${CH}" fill="#0d1019"/>
-<rect x="4" y="4" width="${CW-8}" height="${CH-8}" rx="14" fill="#131826" stroke="#283249" stroke-width="1"/>
+<rect width="${CW}" height="${CH}" fill="${BG}"/>
+<rect x="0" y="${CH-44}" width="${CW}" height="44" fill="${accent}" opacity="0.08"/>
+<line x1="0" y1="${CH-44}" x2="${CW}" y2="${CH-44}" stroke="${accent}" stroke-width="1.5" opacity="0.3"/>
 ${inner}
-${tx(CW/2, 190, label, '#d8e4f8', '13.5', '700', 'middle', '0.09em')}
-${tx(CW/2, 207, sub, '#5e7299', '9', '400', 'middle')}
+${tx(CW/2, CH-24, label, accent, '13', '700', 'middle', '0.1em')}
+${tx(CW/2, CH-9, sub, '#8090b0', '8.5', '400', 'middle')}
 </svg>`;
 }
 
@@ -617,9 +621,10 @@ function poseFor(slug, ph, tier) {
 }
 
 // ── Build SVG ─────────────────────────────────────────────────────
-function bySlug(slug, c, ph, tier) {
+// Figure always uses dark FIG colour; accent used for card decoration only.
+function bySlug(slug, _accentUnused, ph, tier) {
   const j = poseFor(slug, ph, tier);
-  return drawFig(j, c);
+  return drawFig(j, FIG);
 }
 
 // ── Write files ───────────────────────────────────────────────────
@@ -639,7 +644,7 @@ function writeAll() {
       fs.mkdirSync(dir, { recursive: true });
       for (let ph = 1; ph <= 3; ph++) {
         const inner = bySlug(slug, color, ph, tier);
-        const svg = card(inner, ph, slug);
+        const svg = card(inner, color, ph, slug);
         fs.writeFileSync(path.join(dir, `phase-${ph}.svg`), svg, 'utf8');
       }
     }
