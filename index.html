@@ -315,7 +315,7 @@ function renderExercisePhaseRow(slug, tierDir) {
   if (!slug) return '';
   const td = tierDir || 'm';
   const srcs = [1,2,3].map(n =>
-    exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-' + n + '.svg'));
+    exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-' + n + '.png'));
   const labs = EXERCISE_PHASE_LABELS;
   const slides = srcs.map((src, i) =>
     '<div class="pv-slide' + (i===0?' pv-active':'') + '">' +
@@ -397,7 +397,7 @@ window.pvImgFallback = function(img) {
   var slug = img.dataset.slug, n = img.dataset.n;
   var step = +(img.dataset.fs || 0);
   var chain = [
-    exerciseAssetUrl('pictures/exercises/' + slug + '/phase-' + n + '.svg'),
+    exerciseAssetUrl('pictures/exercises/' + slug + '/' + (img.dataset.td||'m') + '/phase-' + n + '.svg'),
     exerciseAssetUrl('pictures/exercises/' + slug + '/m/phase-' + n + '.svg')
   ];
   if (step >= chain.length) {
@@ -2726,7 +2726,7 @@ tryAutoLogin();
   .pv-wrap.pv-wrap-err .pv-err { display:block; }
 
   .pv-track {
-    position:relative; width:100%; aspect-ratio:300/220;
+    position:relative; width:100%; aspect-ratio:16/9;
     background:#edf1f9; overflow:hidden;
   }
   .pv-slide {
