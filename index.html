@@ -968,7 +968,7 @@ async function loadLeaderboard() {
     const total = snap.size;
     const private_ = total - users.length;
     if (private_ > 0) {
-      board.innerHTML += `<div style="color:var(--muted);font-size:0.7rem;text-align:center;padding:1rem;letter-spacing:1px">${private_} kolega/ů se stydí a skrývá statistiky 🙈</div>`;
+      board.innerHTML += `<div style="color:var(--muted);font-size:0.7rem;text-align:center;padding:1rem;letter-spacing:1px">${private_} kolegů/ek se stydí a skrývá statistiky — jen legrace 😄🙈</div>`;
     }
   } catch(e) {
     board.innerHTML = '<div style="color:var(--accent2);text-align:center;padding:2rem">Chyba načítání: ' + e.message + '</div>';
@@ -976,17 +976,21 @@ async function loadLeaderboard() {
 }
 
 function getFunComment(rank, workouts, streak, name) {
-  if (workouts === 0) return "Zatím jen kouká na ostatní z gauče. 🛋️";
+  if (workouts === 0) return "Zatím jen sleduje ostatní z gauče. (Jen škádra, nic vážného.) 😂🛋️";
   if (rank === 0) {
-    const tops = ["Absolutní legenda tělocvičny! Snad aspoň jednou otevřel okno. 🏆", "Číslo jedna! Zbytek sboru ho lituje a obdivuje zároveň.", "Ten člověk cvičí víc než mluví na poradách. Úžasné."];
+    const tops = [
+      "Absolutní legenda tělocvičny! Snad aspoň jednou otevřel/-a okno. 😄🏆",
+      "Číslo jedna! Zbytek sboru závidí i obdivuje — všechno v pořádku. 😂🥇",
+      "Cvičí víc než mluví na poradách. (To se cení.) 😎💪"
+    ];
     return tops[Math.floor(Math.random()*tops.length)];
   }
-  if (streak >= 7) return `${streak} dní v řadě! Asi mu doma řekli ať jde ven. 🔥`;
-  if (streak >= 3) return `${streak} dny streak – ještě pár dní a bude mít vlastní dokumentární film. 💪`;
-  if (workouts >= 20) return "Veterán školní fitky. Záda ho bolí, ale statistiky ne.";
-  if (workouts >= 10) return "Dvouciferný výkon! Někde se fláká, ale aspoň se fláká fitně.";
-  if (workouts >= 5) return "Rozjíždí se. Pomalu, ale jistě. Jako ethernet v roce 2005.";
-  return "Začátečník s velkými sny a malými svaly. Zatím. 💡";
+  if (streak >= 7) return `${streak} dní v řadě! Asi doma slyšel/a: ven je lepší než gauč. 😂🔥`;
+  if (streak >= 3) return `${streak} dny streak — ještě pár dní a má vlastní fitness reklamu. 😂📺`;
+  if (workouts >= 20) return "Veterán školní fitky. Záda možná bolí, ale čísla nelžou. 😅📊";
+  if (workouts >= 10) return "Dvouciferný výkon! Někde se fláká, ale aspoň fitně. 😉🔢";
+  if (workouts >= 5) return "Rozjíždí se. Pomalu, ale jistě — jako dial-up vzpomínka. 😂💾";
+  return "Začátečník/ce s velkými sny a zatím menšími svaly. (Držíme palce.) 💡😄";
 }
 
 // ═══════════════════════════════════════════
