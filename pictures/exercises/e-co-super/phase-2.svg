@@ -1,14 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 212" fill="none" aria-hidden="true">
 <defs>
-  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
-    <feGaussianBlur stdDeviation="0.5" result="b"/>
+  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="0.45" result="b"/>
     <feMerge>
       <feMergeNode in="b"/>
       <feMergeNode in="SourceGraphic"/>
     </feMerge>
   </filter>
 </defs>
-<rect width="200" height="120" fill="#141414"/>
-<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
+<rect width="300" height="212" fill="#0a0c10"/>
+<rect x="5" y="5" width="290" height="202" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
+<g transform="translate(50,12)">
+<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
 <g filter="url(#sfGlow)"><g transform="translate(34,4) scale(1.12)"><circle cx="60" cy="38" r="6" stroke="#c5e86d" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M60 44 L60 56" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 56 L48 70" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 56 L72 70" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 48 L38 46" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 48 L82 46" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="70" r="2.5" fill="#c5e86d"/><circle cx="72" cy="70" r="2.5" fill="#c5e86d"/></g></g>
+</g>
+<g transform="translate(18,58)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
+<path d="M0 0 L0 22 M-6 14 L0 22 L6 14"/></g><g transform="translate(14,36)" stroke="#c5e86d" fill="none" stroke-width="1.35" opacity="0.9">
+<path d="M4 2 C0 -2 -4 2 -2 6"/><path d="M10 2 C14 -2 18 2 16 6"/></g><text x="18" y="32" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">nádech</text>
+
+<text x="150" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">PRŮBĚH</text>
+<text x="150" y="202" text-anchor="middle" fill="#8b9ab8" font-family="Segoe UI,system-ui,sans-serif" font-size="9.5">Klidné tempo</text>
 </svg>

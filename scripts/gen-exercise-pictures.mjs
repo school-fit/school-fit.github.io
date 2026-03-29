@@ -53,6 +53,11 @@ function chin(h, r = 7.5) {
   return [h[0], h[1] + r];
 }
 
+/** Jemná silueta těla (podklad pod čárami) */
+function softBand(x1, y1, x2, y2, s, w = 11, o = 0.13) {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${s}" stroke-width="${w}" stroke-linecap="round" opacity="${o}"/>`;
+}
+
 const NATIVE_SLUGS = new Set([
   'e-ct-kliky',
   'e-ct-lunge',
@@ -72,20 +77,109 @@ function legacyWrap(inner) {
   return `<g transform="translate(34,4) scale(1.12)">${inner}</g>`;
 }
 
-function wrap(body) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+const PHASE_LABELS = ['VÝCHOZÍ', 'PRŮBĚH', 'ZÁVĚR'];
+const CARD_W = 300;
+const CARD_H = 212;
+
+function isStrengthSlug(slug) {
+  return /^(e-ct-|e-co-|e-le-)/.test(slug);
+}
+
+function isCardioSlug(slug) {
+  return /^e-ka-/.test(slug);
+}
+
+/** Šipky a dýchání (styl infografiky) */
+function cardDecorations(phase, slug, accent) {
+  if (phase === 1) return '';
+  const str = isStrengthSlug(slug);
+  const car = isCardioSlug(slug);
+  let g = '';
+  if (phase === 2) {
+    g += `<g transform="translate(18,58)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
+<path d="M0 0 L0 22 M-6 14 L0 22 L6 14"/>`;
+    g += `</g>`;
+    if (str) {
+      g += `<g transform="translate(14,36)" stroke="${accent}" fill="none" stroke-width="1.35" opacity="0.9">
+<path d="M4 2 C0 -2 -4 2 -2 6"/><path d="M10 2 C14 -2 18 2 16 6"/></g>`;
+      g += `<text x="18" y="32" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">nádech</text>`;
+    } else if (car) {
+      g += `<text x="14" y="34" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">plynule</text>`;
+    }
+  } else if (phase === 3) {
+    g += `<g transform="translate(18,118)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
+<path d="M0 22 L0 0 M-6 8 L0 0 L6 8"/>`;
+    g += `</g>`;
+    if (str) {
+      g += `<g transform="translate(14,92)" stroke="${accent}" fill="none" stroke-width="1.35" opacity="0.9">
+<path d="M2 8 C-2 4 -2 0 2 -2"/><path d="M12 8 C16 4 16 0 12 -2"/></g>`;
+      g += `<text x="18" y="88" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">výdech</text>`;
+      g += `<path d="M118 78 Q138 68 158 78" stroke="${accent}" fill="none" stroke-width="1.5" opacity="0.55" stroke-dasharray="3 2"/>`;
+      g += `<text x="138" y="72" text-anchor="middle" fill="${accent}" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" opacity="0.85">břicho</text>`;
+    }
+  }
+  return g;
+}
+
+/** Mini panel špatně / správně — kliky na kolenou */
+function compareShoulderPanel(accent) {
+  return `<g transform="translate(206,22)" opacity="0.97">
+<rect x="0" y="0" width="88" height="96" rx="8" fill="#141a24" stroke="#3d4a62" stroke-width="1"/>
+<text x="44" y="14" text-anchor="middle" fill="#8b98b3" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" font-weight="600">LOPATKY</text>
+<path d="M10 52 Q18 62 26 58 L32 48" stroke="#e85a5a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+<circle cx="20" cy="50" r="2.5" fill="#e85a5a"/>
+<text x="22" y="68" text-anchor="middle" fill="#e85a5a" font-family="Segoe UI,system-ui,sans-serif" font-size="7">špatně</text>
+<path d="M52 50 L68 48 L82 50" stroke="${accent}" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+<circle cx="66" cy="48" r="2.5" fill="${accent}"/>
+<text x="68" y="68" text-anchor="middle" fill="${accent}" font-family="Segoe UI,system-ui,sans-serif" font-size="7">správně</text>
+<text x="44" y="88" text-anchor="middle" fill="#6a7894" font-family="Segoe UI,system-ui,sans-serif" font-size="6.2">rovná záda</text>
+</g>`;
+}
+
+function phaseSubtitle(phase, slug, tier) {
+  if (slug === 'e-ct-kliky' && tier === 'e') {
+    if (phase === 2) return 'Dívej se pod sebe';
+    if (phase === 3) return 'Výdech nahoru · zpevni střed';
+  }
+  if (isStrengthSlug(slug)) {
+    if (phase === 2) return 'Klidné tempo';
+    if (phase === 3) return 'Kontrolovaný návrat';
+  }
+  if (phase === 2) return 'Plynulý průběh';
+  if (phase === 3) return 'Dokonči v klidu';
+  return '';
+}
+
+function wrapCard(inner, stroke, phase, slug, tier) {
+  const label = PHASE_LABELS[phase - 1] || 'FÁZE';
+  const sub = phaseSubtitle(phase, slug, tier);
+  const deco = cardDecorations(phase, slug, stroke);
+  const klikyKneeCompare = slug === 'e-ct-kliky' && tier === 'e' && phase === 3 ? compareShoulderPanel(stroke) : '';
+  const figShift = klikyKneeCompare ? 'translate(28,12)' : 'translate(50,12)';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CARD_W} ${CARD_H}" fill="none" aria-hidden="true">
 <defs>
-  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
-    <feGaussianBlur stdDeviation="0.5" result="b"/>
+  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="0.45" result="b"/>
     <feMerge>
       <feMergeNode in="b"/>
       <feMergeNode in="SourceGraphic"/>
     </feMerge>
   </filter>
 </defs>
-<rect width="200" height="120" fill="#141414"/>
-<line x1="8" y1="${GY}" x2="192" y2="${GY}" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
-<g filter="url(#sfGlow)">${body}</g>
+<rect width="${CARD_W}" height="${CARD_H}" fill="#0a0c10"/>
+<rect x="5" y="5" width="${CARD_W - 10}" height="${CARD_H - 10}" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
+<g transform="${figShift}">
+<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
+<g filter="url(#sfGlow)">${inner}</g>
+</g>
+${deco}
+${klikyKneeCompare}
+<text x="${CARD_W / 2}" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">${label}</text>
+${
+  sub
+    ? `<text x="${CARD_W / 2}" y="202" text-anchor="middle" fill="#8b9ab8" font-family="Segoe UI,system-ui,sans-serif" font-size="9.5">${sub}</text>`
+    : ''
+}
 </svg>`;
 }
 
@@ -221,6 +315,8 @@ function lungeForward(s, ph) {
     const bk = [72, 88];
     const bf = [56, GY];
     return [
+      softBand(hip[0], hip[1], fk[0], fk[1], s, 9, 0.12),
+      softBand(hip[0], hip[1], bk[0], bk[1], s, 8, 0.1),
       H(head[0], head[1], 7.5, s),
       poly([chin(head), neck, hip], s, w),
       poly([hip, fk, ff], s, w),
@@ -320,6 +416,7 @@ function squat(s, ph, oneLegHint) {
     const fl = [78, GY];
     const fr = [122, GY];
     return [
+      softBand(sh[0], sh[1], hip[0], hip[1], s, 14, 0.12),
       H(hd[0], hd[1], 7.5, s),
       poly([chin(hd), sh, hip], s, w),
       poly([hip, kl, fl], s, w),
@@ -362,8 +459,11 @@ function pushup(s, ph, tier) {
       const er = [58, 90];
       const wl = [46, GY];
       const wr = [60, GY];
+      const tail = `<path d="M${head[0] + 6} ${head[1] - 1} Q${head[0] + 14} ${head[1] + 1} ${head[0] + 11} ${head[1] + 9}" stroke="${s}" stroke-width="1.1" fill="none" opacity="0.42"/>`;
       return [
+        softBand(sh[0], sh[1], hip[0], hip[1], s, 12, 0.15),
         H(head[0], head[1], 7, s),
+        tail,
         poly([chin(head, 7), sh, hip], s, w),
         poly([hip, kl], s, w),
         poly([hip, kr], s, w),
@@ -385,6 +485,8 @@ function pushup(s, ph, tier) {
     const wl = [44, GY];
     const wr = [58, GY];
     return [
+      softBand(sh[0], sh[1], hip[0], hip[1], s, 12, 0.14),
+      softBand(hip[0], hip[1], knee[0], knee[1], s, 10, 0.12),
       H(head[0], head[1], 7, s),
       poly([chin(head, 7), sh, hip, knee, foot], s, w),
       poly([sh, [50, elY], wl], s, w),
@@ -417,6 +519,8 @@ function plankHigh(s, ph, tier) {
       ? poly([neck, sh, hip], s, w) + poly([hip, knee, ankle], s, w)
       : poly([neck, sh, hip, knee, ankle], s, w);
     return [
+      softBand(neck[0], neck[1], hip[0], hip[1], s, 12, 0.13),
+      softBand(hip[0], hip[1], ankle[0], ankle[1], s, 10, 0.11),
       H(head[0], head[1], 7.5, s),
       poly([chin, neck], s, w),
       body,
@@ -438,6 +542,7 @@ function plankHigh(s, ph, tier) {
     const er = [60, 86];
     if (ph === 2) {
       return [
+        softBand(neck[0], neck[1], hip[0], hip[1], s, 11, 0.14),
         H(head[0], head[1], 7, s),
         poly([chin(head, 7), neck, sh, hip], s, w),
         poly([hip, kl], s, w),
@@ -448,6 +553,7 @@ function plankHigh(s, ph, tier) {
       ].join('');
     }
     return [
+      softBand(neck[0], neck[1], hip[0], hip[1], s, 11, 0.14),
       H(head[0], head[1], 7, s),
       poly([chin(head, 7), neck, sh, hip], s, w),
       poly([hip, kl], s, w),
@@ -1080,7 +1186,7 @@ function writeAll() {
       fs.mkdirSync(dir, { recursive: true });
       for (let ph = 1; ph <= 3; ph++) {
         const body = bySlug(slug, stroke, ph, tier);
-        fs.writeFileSync(path.join(dir, `phase-${ph}.svg`), wrap(body), 'utf8');
+        fs.writeFileSync(path.join(dir, `phase-${ph}.svg`), wrapCard(body, stroke, ph, slug, tier), 'utf8');
       }
     }
     const mDir = path.join(EX_ROOT, slug, 'm');

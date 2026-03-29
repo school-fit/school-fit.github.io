@@ -1,14 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 212" fill="none" aria-hidden="true">
 <defs>
-  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
-    <feGaussianBlur stdDeviation="0.5" result="b"/>
+  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="0.45" result="b"/>
     <feMerge>
       <feMergeNode in="b"/>
       <feMergeNode in="SourceGraphic"/>
     </feMerge>
   </filter>
 </defs>
-<rect width="200" height="120" fill="#141414"/>
-<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
+<rect width="300" height="212" fill="#0a0c10"/>
+<rect x="5" y="5" width="290" height="202" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
+<g transform="translate(50,12)">
+<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
 <g filter="url(#sfGlow)"><g transform="translate(34,4) scale(1.12)"><path d="M18 30 L18 92" stroke="#ff5c5c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="56" cy="28" r="7" stroke="#ff5c5c" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M56 35 L58 52" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 52 L52 78" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 52 L66 78" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 40 L48 48" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 40 L66 46" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><circle cx="52" cy="78" r="2.5" fill="#ff5c5c"/><circle cx="66" cy="78" r="2.5" fill="#ff5c5c"/></g></g>
+</g>
+<g transform="translate(18,118)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
+<path d="M0 22 L0 0 M-6 8 L0 0 L6 8"/></g><g transform="translate(14,92)" stroke="#ff5c5c" fill="none" stroke-width="1.35" opacity="0.9">
+<path d="M2 8 C-2 4 -2 0 2 -2"/><path d="M12 8 C16 4 16 0 12 -2"/></g><text x="18" y="88" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">výdech</text><path d="M118 78 Q138 68 158 78" stroke="#ff5c5c" fill="none" stroke-width="1.5" opacity="0.55" stroke-dasharray="3 2"/><text x="138" y="72" text-anchor="middle" fill="#ff5c5c" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" opacity="0.85">břicho</text>
+
+<text x="150" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">ZÁVĚR</text>
+<text x="150" y="202" text-anchor="middle" fill="#8b9ab8" font-family="Segoe UI,system-ui,sans-serif" font-size="9.5">Kontrolovaný návrat</text>
 </svg>
