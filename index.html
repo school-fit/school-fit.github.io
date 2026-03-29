@@ -268,7 +268,12 @@ const POSE_SVG = {
   }
 };
 
-function poseSvg(poseKey, tier) {
+function poseSvg(poseKey, tier, imgSlug) {
+  if (imgSlug) {
+    var src = exerciseAssetUrl('pictures/exercises/' + imgSlug + '/phase-1.png');
+    return '<img class="ex-pose-svg ex-pose-img" src="' + src + '" alt="" loading="lazy"' +
+      ' onerror="this.classList.add(\'ex-pose-fallback\')">';
+  }
   const P = POSE_SVG[poseKey] || POSE_SVG.squat;
   const geomKey = tier <= 0 ? 'e' : tier === 1 ? 'm' : 'h';
   const inner = P[geomKey] || P.m;
@@ -1532,7 +1537,7 @@ function renderExercises() {
     const done = completedExercises.has(i);
     const lv = getExerciseLv(ex, tier);
     const pose = ex.pose || 'squat';
-    const vis = poseSvg(pose, tier);
+    const vis = poseSvg(pose, tier, ex.imgSlug || null);
     const phases = renderExercisePhaseRow(ex.imgSlug, tierDir);
     list.innerHTML += `
       <div class="exercise-item ${done ? 'done' : ''}" onclick="toggleExercise(${i})">
@@ -2702,6 +2707,10 @@ tryAutoLogin();
     flex-shrink:0; width:56px; display:flex; flex-direction:column; align-items:center; gap:4px;
   }
   .ex-pose-svg { width:52px; height:52px; display:block; }
+  .ex-pose-img {
+    object-fit:cover; object-position:center 30%;
+    border-radius:10px; background:#f0f3fc;
+  }
   .exercise-tier-badge {
     font-size:0.52rem; letter-spacing:0.5px; text-transform:uppercase;
     color:var(--muted); text-align:center; line-height:1.1; max-width:56px;
@@ -2727,6 +2736,7 @@ tryAutoLogin();
 
   .pv-track {
     position:relative; width:100%; aspect-ratio:16/9;
+    max-height:170px;
     background:#edf1f9; overflow:hidden;
   }
   .pv-slide {
