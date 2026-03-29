@@ -1,5 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<defs>
+  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
+    <feGaussianBlur stdDeviation="0.5" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
 <rect width="200" height="120" fill="#141414"/>
-<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
-<circle cx="104" cy="26" r="8" stroke="#5b9fd4" stroke-width="2.2"/><path d="M104 34 L104 58" stroke="#5b9fd4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M104 58 L96 108" stroke="#5b9fd4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M104 58 L114 108" stroke="#5b9fd4" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M104 40 L94 46" stroke="#5b9fd4" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M104 40 L114 44" stroke="#5b9fd4" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="96" cy="108" r="3.5" fill="#5b9fd4"/><circle cx="114" cy="108" r="3.5" fill="#5b9fd4"/>
+<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
+<g filter="url(#sfGlow)"><circle cx="92" cy="24" r="7.5" stroke="#5b9fd4" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M92 31.5 L90 36 L94 54" stroke="#5b9fd4" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M94 54 L98 72 L102 108" stroke="#5b9fd4" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M94 54 L90 74 L86 108" stroke="#5b9fd4" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M90 36 L82 44 L78 50" stroke="#5b9fd4" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M90 36 L100 42" stroke="#5b9fd4" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><circle cx="90" cy="36" r="2.5" fill="#5b9fd4"/><circle cx="94" cy="54" r="2.5" fill="#5b9fd4"/><circle cx="98" cy="72" r="2.5" fill="#5b9fd4"/><circle cx="102" cy="108" r="2.5" fill="#5b9fd4"/><circle cx="90" cy="74" r="2.5" fill="#5b9fd4"/><circle cx="86" cy="108" r="2.5" fill="#5b9fd4"/><circle cx="82" cy="44" r="2.5" fill="#5b9fd4"/><circle cx="78" cy="50" r="2.5" fill="#5b9fd4"/><circle cx="100" cy="42" r="2.5" fill="#5b9fd4"/></g>
 </svg>

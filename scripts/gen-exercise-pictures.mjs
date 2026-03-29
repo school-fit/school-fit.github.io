@@ -12,10 +12,46 @@ const EX_ROOT = path.join(__dirname, '..', 'pictures', 'exercises');
 const COL = { e: '#5b9fd4', m: '#c5e86d', h: '#e8943a', x: '#ff5c5c' };
 const TIERS = ['e', 'm', 'h', 'x'];
 
-const P = (d, s, w = 2.5) =>
+const GY = 108;
+const LINE_W = 2.05;
+const JR = 2.5;
+
+const P = (d, s, w = LINE_W) =>
   `<path d="${d}" stroke="${s}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
-const C = (cx, cy, r, s, w = 2) => `<circle cx="${cx}" cy="${cy}" r="${r}" stroke="${s}" stroke-width="${w}"/>`;
-const F = (cx, cy, s) => `<circle cx="${cx}" cy="${cy}" r="3.5" fill="${s}"/>`;
+/** Hlava — jen obrys (jako ve vzoru) */
+const H = (cx, cy, r, s) =>
+  `<circle cx="${cx}" cy="${cy}" r="${r}" stroke="${s}" stroke-width="1.85" fill="none" opacity="0.98"/>`;
+const C = H;
+/** Kloub / koncový bod */
+const J = (cx, cy, s) => `<circle cx="${cx}" cy="${cy}" r="${JR}" fill="${s}"/>`;
+const F = J;
+
+function jointsFrom(points, s) {
+  const seen = new Set();
+  const parts = [];
+  for (const pt of points) {
+    if (!pt) continue;
+    const [x, y] = pt;
+    const k = `${x},${y}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    parts.push(J(x, y, s));
+  }
+  return parts.join('');
+}
+
+function poly(pts, s, w = LINE_W) {
+  if (!pts || pts.length < 2) return '';
+  const sw = Math.round(w * 100) / 100;
+  let d = `M${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 1; i < pts.length; i++) d += ` L${pts[i][0]} ${pts[i][1]}`;
+  return P(d, s, sw);
+}
+
+/** Spodní okraj hlavy (spoj krku od obrysu, ne od středu kruhu) */
+function chin(h, r = 7.5) {
+  return [h[0], h[1] + r];
+}
 
 const NATIVE_SLUGS = new Set([
   'e-ct-kliky',
@@ -38,9 +74,18 @@ function legacyWrap(inner) {
 
 function wrap(body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<defs>
+  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
+    <feGaussianBlur stdDeviation="0.5" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
 <rect width="200" height="120" fill="#141414"/>
-<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
-${body}
+<line x1="8" y1="${GY}" x2="192" y2="${GY}" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
+<g filter="url(#sfGlow)">${body}</g>
 </svg>`;
 }
 
@@ -125,404 +170,386 @@ function bySlug(slug, stroke, phase, tier) {
 }
 
 function neutralStand(stroke) {
-  return [
-    C(60, 22, 7, stroke),
-    P('M60 29 L60 50', stroke),
-    P('M60 50 L52 92', stroke),
-    P('M60 50 L68 92', stroke),
-    P('M60 34 L48 40', stroke),
-    P('M60 34 L72 40', stroke),
-    F(52, 92, stroke),
-    F(68, 92, stroke)
-  ].join('');
-}
-
-const GY = 108;
-const SW = 3.2;
-
-/** Výpad vpřed — profil, podlaha y=GY */
-function lungeForward(s, ph) {
-  if (ph === 1) {
-    return [
-      C(88, 26, 8, s, 2.2),
-      P(`M88 34 L86 58`, s, SW),
-      P(`M86 58 L76 ${GY}`, s, SW),
-      P(`M86 58 L100 ${GY}`, s, SW),
-      P(`M88 40 L74 48`, s, SW - 0.6),
-      P(`M88 40 L96 44`, s, SW - 0.6),
-      F(76, GY, s),
-      F(100, GY, s)
-    ].join('');
-  }
-  if (ph === 2) {
-    return [
-      C(102, 28, 8, s, 2.2),
-      P(`M102 36 L96 54`, s, SW),
-      P(`M96 54 L122 70 L138 ${GY}`, s, SW),
-      P(`M96 54 L74 78 L64 ${GY}`, s, SW),
-      P(`M100 42 L86 50`, s, SW - 0.6),
-      P(`M102 42 L110 46`, s, SW - 0.6),
-      F(64, GY, s),
-      F(138, GY, s)
-    ].join('');
-  }
-  return [
-    C(92, 26, 8, s, 2.2),
-    P(`M92 34 L90 58`, s, SW),
-    P(`M90 58 L82 ${GY}`, s, SW),
-    P(`M90 58 L104 ${GY}`, s, SW),
-    P(`M92 40 L80 48`, s, SW - 0.6),
-    P(`M92 40 L100 44`, s, SW - 0.6),
-    F(82, GY, s),
-    F(104, GY, s)
-  ].join('');
-}
-
-/** Výpad vzad */
-function lungeReverse(s, ph) {
-  if (ph === 1) {
-    return [
-      C(108, 26, 8, s, 2.2),
-      P(`M108 34 L106 58`, s, SW),
-      P(`M106 58 L100 ${GY}`, s, SW),
-      P(`M106 58 L116 ${GY}`, s, SW),
-      P(`M108 40 L96 46`, s, SW - 0.6),
-      P(`M108 40 L118 44`, s, SW - 0.6),
-      F(100, GY, s),
-      F(116, GY, s)
-    ].join('');
-  }
-  if (ph === 2) {
-    return [
-      C(98, 28, 8, s, 2.2),
-      P(`M98 36 L102 54`, s, SW),
-      P(`M102 54 L118 ${GY}`, s, SW),
-      P(`M102 54 L68 74 L58 ${GY}`, s, SW),
-      P(`M100 42 L90 48`, s, SW - 0.6),
-      P(`M98 42 L108 46`, s, SW - 0.6),
-      F(58, GY, s),
-      F(118, GY, s)
-    ].join('');
-  }
-  return [
-    C(104, 26, 8, s, 2.2),
-    P(`M104 34 L104 58`, s, SW),
-    P(`M104 58 L96 ${GY}`, s, SW),
-    P(`M104 58 L114 ${GY}`, s, SW),
-    P(`M104 40 L94 46`, s, SW - 0.6),
-    P(`M104 40 L114 44`, s, SW - 0.6),
-    F(96, GY, s),
-    F(114, GY, s)
-  ].join('');
-}
-
-function squat(s, ph, oneLegHint) {
   const cx = 100;
-  if (ph === 1) {
-    let extra = '';
-    if (oneLegHint) {
-      extra = P(`M${cx} 52 L112 88`, s, SW - 0.8) + F(112, 88, s);
-    }
-    return (
-      [
-        C(cx, 22, 8, s, 2.2),
-        P(`M${cx} 30 L${cx} 52`, s, SW),
-        P(`M${cx} 52 L86 ${GY}`, s, SW),
-        P(`M${cx} 52 L114 ${GY}`, s, SW),
-        P(`M${cx} 36 L84 44`, s, SW - 0.6),
-        P(`M${cx} 36 L116 44`, s, SW - 0.6),
-        F(86, GY, s),
-        F(114, GY, s)
-      ].join('') + extra
-    );
-  }
-  if (ph === 2) {
-    return [
-      C(cx, 34, 8, s, 2.2),
-      P(`M${cx} 42 L${cx} 70`, s, SW),
-      P(`M${cx} 70 L82 86 L78 ${GY}`, s, SW),
-      P(`M${cx} 70 L118 86 L122 ${GY}`, s, SW),
-      P(`M${cx} 48 L78 60`, s, SW - 0.6),
-      P(`M${cx} 48 L122 60`, s, SW - 0.6),
-      F(78, GY, s),
-      F(122, GY, s)
-    ].join('');
-  }
+  const hip = [cx, 52];
+  const sh = [cx, 36];
+  const nk = [cx, 28];
+  const hd = [cx, 18];
+  const fl = [88, GY];
+  const fr = [112, GY];
   return [
-    C(cx, 28, 8, s, 2.2),
-    P(`M${cx} 36 L${cx} 58`, s, SW),
-    P(`M${cx} 58 L88 90 L90 ${GY}`, s, SW),
-    P(`M${cx} 58 L112 90 L110 ${GY}`, s, SW),
-    P(`M${cx} 42 L82 52`, s, SW - 0.6),
-    P(`M${cx} 42 L118 52`, s, SW - 0.6),
-    F(90, GY, s),
-    F(110, GY, s)
+    H(hd[0], hd[1], 7.5, stroke),
+    poly([chin(hd), nk, sh, hip], stroke),
+    poly([hip, fl], stroke),
+    poly([hip, fr], stroke),
+    poly([sh, [78, 42]], stroke),
+    poly([sh, [122, 42]], stroke),
+    jointsFrom([nk, sh, hip, fl, fr, [78, 42], [122, 42], chin(hd)], stroke)
   ].join('');
 }
 
 /**
- * Kliky — profil z boku, jasná fáze nahoře / dole / nahoru.
- * Úroveň e: kliky s koleny na zemi (návod odpovídá lehké variantě).
+ * Výpad vpřed — výhradně profil z boku (jedna „viditelná“ noha vpředu + vzadu),
+ * fáze 2: pokrčená kolena ~90° vpředu, zadní koleno nízko.
  */
-function pushup(s, ph, tier) {
-  const knee = tier === 'e';
-  const w = SW;
-  if (knee) {
-    if (ph === 1) {
-      return [
-        C(54, 40, 8, s, 2.2),
-        P(`M54 48 L70 60 L104 74`, s, w),
-        P(`M70 60 L50 ${GY}`, s, w),
-        P(`M70 60 L74 ${GY}`, s, w),
-        P(`M104 74 L116 ${GY}`, s, w),
-        P(`M104 74 L130 ${GY}`, s, w),
-        F(50, GY, s),
-        F(74, GY, s),
-        F(116, GY, s),
-        F(130, GY, s)
-      ].join('');
-    }
-    if (ph === 2) {
-      return [
-        C(58, 50, 8, s, 2.2),
-        P(`M58 58 L72 72 L100 80`, s, w),
-        P(`M72 72 L48 ${GY}`, s, w),
-        P(`M72 72 L76 ${GY}`, s, w),
-        P(`M100 80 L114 ${GY}`, s, w),
-        P(`M100 80 L128 ${GY}`, s, w),
-        F(48, GY, s),
-        F(76, GY, s),
-        F(114, GY, s),
-        F(128, GY, s)
-      ].join('');
-    }
-    return [
-      C(56, 44, 8, s, 2.2),
-      P(`M56 52 L70 64 L102 76`, s, w),
-      P(`M70 64 L50 ${GY}`, s, w),
-      P(`M70 64 L74 ${GY}`, s, w),
-      P(`M102 76 L116 ${GY}`, s, w),
-      P(`M102 76 L130 ${GY}`, s, w),
-      F(50, GY, s),
-      F(74, GY, s),
-      F(116, GY, s),
-      F(130, GY, s)
-    ].join('');
-  }
+function lungeForward(s, ph) {
+  const w = LINE_W + 0.1;
   if (ph === 1) {
+    const head = [82, 24];
+    const neck = [84, 36];
+    const hip = [88, 54];
+    const fk = [92, 72];
+    const ff = [98, GY];
+    const bk = [82, 76];
+    const bf = [76, GY];
     return [
-      C(44, 34, 8, s, 2.2),
-      P(`M44 42 L60 54 L102 64 L138 76 L168 ${GY}`, s, w),
-      P(`M60 54 L46 ${GY}`, s, w),
-      P(`M60 54 L74 ${GY}`, s, w),
-      F(46, GY, s),
-      F(74, GY, s),
-      F(168, GY, s)
+      H(head[0], head[1], 7.5, s),
+      poly([chin(head), neck, hip], s, w),
+      poly([hip, fk, ff], s, w),
+      poly([hip, bk, bf], s, w),
+      poly([neck, [74, 44]], s, w),
+      poly([neck, [92, 42]], s, w),
+      jointsFrom([neck, hip, fk, ff, bk, bf, [74, 44], [92, 42]], s)
     ].join('');
   }
   if (ph === 2) {
+    const head = [102, 26];
+    const neck = [98, 38];
+    const hip = [86, 56];
+    const fk = [118, 78];
+    const ff = [128, GY];
+    const bk = [72, 88];
+    const bf = [56, GY];
     return [
-      C(52, 48, 8, s, 2.2),
-      P(`M52 56 L64 72 L96 76 L130 84 L162 ${GY}`, s, w),
-      P(`M64 72 L44 ${GY}`, s, w),
-      P(`M64 72 L80 ${GY}`, s, w),
-      F(44, GY, s),
-      F(80, GY, s),
-      F(162, GY, s)
+      H(head[0], head[1], 7.5, s),
+      poly([chin(head), neck, hip], s, w),
+      poly([hip, fk, ff], s, w),
+      poly([hip, bk, bf], s, w),
+      poly([neck, [86, 46]], s, w),
+      poly([neck, [104, 44]], s, w),
+      jointsFrom([neck, hip, fk, ff, bk, bf, [86, 46], [104, 44]], s)
     ].join('');
   }
+  const head = [88, 24];
+  const neck = [86, 36];
+  const hip = [88, 54];
+  const fk = [94, 74];
+  const ff = [100, GY];
+  const bk = [80, 78];
+  const bf = [74, GY];
   return [
-    C(48, 38, 8, s, 2.2),
-    P(`M48 46 L58 58 L100 66 L136 78 L166 ${GY}`, s, w),
-    P(`M58 58 L46 ${GY}`, s, w),
-    P(`M58 58 L72 ${GY}`, s, w),
-    F(46, GY, s),
-    F(72, GY, s),
-    F(166, GY, s)
+    H(head[0], head[1], 7.5, s),
+    poly([chin(head), neck, hip], s, w),
+    poly([hip, fk, ff], s, w),
+    poly([hip, bk, bf], s, w),
+    poly([neck, [76, 44]], s, w),
+    poly([neck, [94, 42]], s, w),
+    jointsFrom([neck, hip, fk, ff, bk, bf, [76, 44], [94, 42]], s)
   ].join('');
 }
 
-function plankHigh(s, ph, tier) {
-  const knee = tier === 'e';
-  const w = SW;
-  if (knee) {
-    if (ph === 1) {
-      return [
-        C(52, 36, 8, s, 2.2),
-        P(`M52 44 L68 56 L108 66`, s, w),
-        P(`M68 56 L48 ${GY}`, s, w),
-        P(`M68 56 L74 ${GY}`, s, w),
-        P(`M108 66 L120 ${GY}`, s, w),
-        P(`M108 66 L134 ${GY}`, s, w),
-        F(48, GY, s),
-        F(74, GY, s),
-        F(120, GY, s),
-        F(134, GY, s)
-      ].join('');
-    }
-    if (ph === 2) {
-      return [
-        C(54, 38, 8, s, 2.2),
-        P(`M54 46 L70 58 L110 68`, s, 2.6),
-        P(`M70 58 L50 ${GY}`, s, w),
-        P(`M70 58 L76 ${GY}`, s, w),
-        P(`M110 68 L122 ${GY}`, s, w),
-        P(`M110 68 L136 ${GY}`, s, w),
-        F(50, GY, s),
-        F(76, GY, s),
-        F(122, GY, s),
-        F(136, GY, s)
-      ].join('');
-    }
-    return plankHigh(s, 1, tier);
-  }
+/** Výpad vzad — zadní noha dlouhá vzadu, přední pod kyčlí */
+function lungeReverse(s, ph) {
+  const w = LINE_W + 0.1;
   if (ph === 1) {
+    const head = [92, 24];
+    const neck = [90, 36];
+    const hip = [94, 54];
+    const ff = [102, GY];
+    const bf = [86, GY];
     return [
-      C(42, 32, 8, s, 2.2),
-      P(`M42 40 L58 50 L104 60 L142 72 L172 ${GY}`, s, w),
-      P(`M58 50 L46 ${GY}`, s, w),
-      P(`M58 50 L72 ${GY}`, s, w),
-      F(46, GY, s),
-      F(72, GY, s),
-      F(172, GY, s)
+      H(head[0], head[1], 7.5, s),
+      poly([chin(head), neck, hip], s, w),
+      poly([hip, [98, 72], ff], s, w),
+      poly([hip, [90, 74], bf], s, w),
+      poly([neck, [82, 44], [78, 50]], s, w),
+      poly([neck, [100, 42]], s, w),
+      jointsFrom([neck, hip, [98, 72], ff, [90, 74], bf, [82, 44], [78, 50], [100, 42]], s)
     ].join('');
   }
   if (ph === 2) {
+    const head = [88, 26];
+    const neck = [90, 38];
+    const hip = [98, 56];
+    const fk = [108, 76];
+    const ff = [118, GY];
+    const bk = [78, 82];
+    const bf = [52, GY];
     return [
-      C(44, 34, 8, s, 2.2),
-      P(`M44 42 L60 52 L106 62 L144 74 L174 ${GY}`, s, 2.7),
-      P(`M60 52 L48 ${GY}`, s, w),
-      P(`M60 52 L74 ${GY}`, s, w),
-      F(48, GY, s),
-      F(74, GY, s),
-      F(174, GY, s)
+      H(head[0], head[1], 7.5, s),
+      poly([chin(head), neck, hip], s, w),
+      poly([hip, fk, ff], s, w),
+      poly([hip, bk, bf], s, w),
+      poly([neck, [84, 48]], s, w),
+      poly([neck, [102, 46]], s, w),
+      jointsFrom([neck, hip, fk, ff, bk, bf, [84, 48], [102, 46]], s)
     ].join('');
   }
-  return plankHigh(s, 1, tier);
+  return lungeReverse(s, 1);
+}
+
+function squat(s, ph, oneLegHint) {
+  const cx = 100;
+  const w = LINE_W + 0.1;
+  if (ph === 1) {
+    const hd = [cx, 20];
+    const sh = [cx, 34];
+    const hip = [cx, 50];
+    const fl = [86, GY];
+    const fr = [114, GY];
+    let g = [
+      H(hd[0], hd[1], 7.5, s),
+      poly([chin(hd), sh, hip], s, w),
+      poly([hip, fl], s, w),
+      poly([hip, fr], s, w),
+      poly([sh, [82, 40]], s, w),
+      poly([sh, [118, 40]], s, w),
+      jointsFrom([sh, hip, fl, fr, [82, 40], [118, 40]], s)
+    ].join('');
+    if (oneLegHint) {
+      g += poly([hip, [112, 82], [112, GY]], s, w) + J(112, GY, s);
+    }
+    return g;
+  }
+  if (ph === 2) {
+    const hd = [cx, 32];
+    const sh = [cx, 44];
+    const hip = [cx, 68];
+    const kl = [82, 84];
+    const kr = [118, 84];
+    const fl = [78, GY];
+    const fr = [122, GY];
+    return [
+      H(hd[0], hd[1], 7.5, s),
+      poly([chin(hd), sh, hip], s, w),
+      poly([hip, kl, fl], s, w),
+      poly([hip, kr, fr], s, w),
+      poly([sh, [78, 56]], s, w),
+      poly([sh, [122, 56]], s, w),
+      jointsFrom([sh, hip, kl, kr, fl, fr, [78, 56], [122, 56]], s)
+    ].join('');
+  }
+  const hd = [cx, 26];
+  const sh = [cx, 38];
+  const hip = [cx, 58];
+  const kl = [86, 88];
+  const kr = [114, 88];
+  const fl = [82, GY];
+  const fr = [118, GY];
+  return [
+    H(hd[0], hd[1], 7.5, s),
+    poly([chin(hd), sh, hip], s, w),
+    poly([hip, kl, fl], s, w),
+    poly([hip, kr, fr], s, w),
+    poly([sh, [80, 50]], s, w),
+    poly([sh, [120, 50]], s, w),
+    jointsFrom([sh, hip, kl, kr, fl, fr, [80, 50], [120, 50]], s)
+  ].join('');
+}
+
+/** Kliky — profil; e = kolena na zemi, tělo v přímce ramen–kolena. */
+function pushup(s, ph, tier) {
+  const w = LINE_W + 0.15;
+  const knee = tier === 'e';
+  if (knee) {
+    const base = (yHead, ySh, yHip) => {
+      const head = [48, yHead];
+      const sh = [62, ySh];
+      const hip = [102, yHip];
+      const kl = [112, GY];
+      const kr = [128, GY];
+      const el = [54, 88];
+      const er = [58, 90];
+      const wl = [46, GY];
+      const wr = [60, GY];
+      return [
+        H(head[0], head[1], 7, s),
+        poly([chin(head, 7), sh, hip], s, w),
+        poly([hip, kl], s, w),
+        poly([hip, kr], s, w),
+        poly([sh, el, wl], s, w),
+        poly([sh, er, wr], s, w),
+        jointsFrom([sh, hip, kl, kr, el, er, wl, wr], s)
+      ].join('');
+    };
+    if (ph === 1) return base(36, 54, 70);
+    if (ph === 2) return base(46, 64, 74);
+    return base(40, 58, 72);
+  }
+  const full = (yHead, shY, hipY, kneeY, elY, erY) => {
+    const head = [40, yHead];
+    const sh = [58, shY];
+    const hip = [98, hipY];
+    const knee = [132, kneeY];
+    const foot = [168, GY];
+    const wl = [44, GY];
+    const wr = [58, GY];
+    return [
+      H(head[0], head[1], 7, s),
+      poly([chin(head, 7), sh, hip, knee, foot], s, w),
+      poly([sh, [50, elY], wl], s, w),
+      poly([sh, [56, erY], wr], s, w),
+      jointsFrom([sh, hip, knee, foot, [50, elY], [56, erY], wl, wr], s)
+    ].join('');
+  };
+  if (ph === 1) return full(34, 62, 64, 68, 88, 90);
+  if (ph === 2) return full(44, 68, 68, 72, 82, 84);
+  return full(38, 64, 65, 69, 86, 88);
+}
+
+/** Prkno na dlaních — ramena–paty v jedné „lince“, ne „pejskoviště“. */
+function plankHigh(s, ph, tier) {
+  const w = LINE_W + 0.15;
+  const knee = tier === 'e';
+  const straightLine = (hipY, kneeY, sag) => {
+    const head = [36, 46];
+    const chin = [36, 53.5];
+    const neck = [48, 56];
+    const sh = [60, 62];
+    const hip = [104, hipY];
+    const knee = [138, kneeY];
+    const ankle = [172, GY];
+    const wl = [46, GY];
+    const wr = [58, GY];
+    const el = [52, 86];
+    const er = [56, 88];
+    const body = sag
+      ? poly([neck, sh, hip], s, w) + poly([hip, knee, ankle], s, w)
+      : poly([neck, sh, hip, knee, ankle], s, w);
+    return [
+      H(head[0], head[1], 7.5, s),
+      poly([chin, neck], s, w),
+      body,
+      poly([sh, el, wl], s, w),
+      poly([sh, er, wr], s, w),
+      jointsFrom([neck, sh, hip, knee, ankle, el, er, wl, wr], s)
+    ].join('');
+  };
+  if (knee) {
+    const head = [44, 40];
+    const neck = [52, 50];
+    const sh = [64, 58];
+    const hip = [108, 68];
+    const kl = [116, GY];
+    const kr = [130, GY];
+    const wl = [50, GY];
+    const wr = [66, GY];
+    const el = [56, 84];
+    const er = [60, 86];
+    if (ph === 2) {
+      return [
+        H(head[0], head[1], 7, s),
+        poly([chin(head, 7), neck, sh, hip], s, w),
+        poly([hip, kl], s, w),
+        poly([hip, kr], s, w),
+        poly([sh, el, wl], s, w),
+        poly([sh, er, wr], s, w),
+        jointsFrom([neck, sh, hip, kl, kr, el, er, wl, wr], s)
+      ].join('');
+    }
+    return [
+      H(head[0], head[1], 7, s),
+      poly([chin(head, 7), neck, sh, hip], s, w),
+      poly([hip, kl], s, w),
+      poly([hip, kr], s, w),
+      poly([sh, el, wl], s, w),
+      poly([sh, er, wr], s, w),
+      jointsFrom([neck, sh, hip, kl, kr, el, er, wl, wr], s)
+    ].join('');
+  }
+  if (ph === 1 || ph === 3) return straightLine(63, 66, false);
+  return straightLine(74, 70, true);
 }
 
 function plankElbow(s, ph, tier) {
+  const w = LINE_W + 0.15;
+  const ely = GY - 2;
   const knee = tier === 'e';
-  const w = SW;
-  const ely = GY - 4;
+  const elbowPlank = (hipY, knY, headY) => {
+    const head = [40, headY];
+    const neck = [50, headY + 12];
+    const sh = [62, neck[1] + 8];
+    const hip = [102, hipY];
+    const knee = [136, knY];
+    const ankle = [168, GY];
+    return [
+      H(head[0], head[1], 7.5, s),
+      poly([chin(head), neck, sh, hip, knee, ankle], s, w),
+      poly([sh, [54, ely], [48, GY]], s, w),
+      poly([sh, [58, ely], [62, GY]], s, w),
+      jointsFrom([neck, sh, hip, knee, ankle, [54, ely], [48, GY], [58, ely], [62, GY]], s)
+    ].join('');
+  };
   if (knee) {
-    if (ph === 1) {
-      return [
-        C(56, 34, 8, s, 2.2),
-        P(`M56 42 L74 54 L110 64`, s, w),
-        P(`M74 54 L62 ${ely} L54 ${GY}`, s, w),
-        P(`M74 54 L70 ${ely} L78 ${GY}`, s, w),
-        P(`M110 64 L122 ${GY}`, s, w),
-        P(`M110 64 L136 ${GY}`, s, w),
-        F(54, GY, s),
-        F(78, GY, s),
-        F(122, GY, s),
-        F(136, GY, s)
-      ].join('');
-    }
+    const head = [46, 38];
+    const neck = [54, 48];
+    const sh = [66, 58];
+    const hip = [110, 68];
+    const kl = [118, GY];
+    const kr = [132, GY];
     if (ph === 2) {
       return [
-        C(58, 36, 8, s, 2.2),
-        P(`M58 44 L76 56 L112 66`, s, w),
-        P(`M76 56 L64 ${ely} L56 ${GY}`, s, w),
-        P(`M76 56 L72 ${ely} L80 ${GY}`, s, w),
-        P(`M112 66 L124 ${GY}`, s, w),
-        P(`M112 66 L138 ${GY}`, s, w),
-        F(56, GY, s),
-        F(80, GY, s),
-        F(124, GY, s),
-        F(138, GY, s)
+        H(head[0], head[1], 7, s),
+        poly([chin(head, 7), neck, sh, hip], s, w),
+        poly([hip, kl], s, w),
+        poly([hip, kr], s, w),
+        poly([sh, [58, ely], [52, GY]], s, w),
+        poly([sh, [62, ely], [66, GY]], s, w),
+        jointsFrom([neck, sh, hip, kl, kr, [58, ely], [52, GY], [62, ely], [66, GY]], s)
       ].join('');
     }
-    return plankElbow(s, 1, tier);
-  }
-  if (ph === 1) {
     return [
-      C(48, 30, 8, s, 2.2),
-      P(`M48 38 L68 48 L108 58 L148 70 L172 ${GY}`, s, w),
-      P(`M68 48 L58 ${ely} L50 ${GY}`, s, w),
-      P(`M68 48 L64 ${ely} L76 ${GY}`, s, w),
-      F(50, GY, s),
-      F(76, GY, s),
-      F(172, GY, s)
+      H(head[0], head[1], 7, s),
+      poly([chin(head, 7), neck, sh, hip], s, w),
+      poly([hip, kl], s, w),
+      poly([hip, kr], s, w),
+      poly([sh, [58, ely], [52, GY]], s, w),
+      poly([sh, [62, ely], [66, GY]], s, w),
+      jointsFrom([neck, sh, hip, kl, kr, [58, ely], [52, GY], [62, ely], [66, GY]], s)
     ].join('');
   }
-  if (ph === 2) {
-    return [
-      C(50, 32, 8, s, 2.2),
-      P(`M50 40 L70 50 L110 60 L150 72 L174 ${GY}`, s, w),
-      P(`M70 50 L60 ${ely} L52 ${GY}`, s, w),
-      P(`M70 50 L66 ${ely} L78 ${GY}`, s, w),
-      F(52, GY, s),
-      F(78, GY, s),
-      F(174, GY, s)
-    ].join('');
-  }
-  return plankElbow(s, 1, tier);
+  if (ph === 1 || ph === 3) return elbowPlank(62, 66, 34);
+  return elbowPlank(70, 68, 36);
 }
 
 function gluteBridge(s, ph, singleLegAccent) {
-  const w = SW - 0.2;
-  const legLift = singleLegAccent ? P(`M78 56 L96 34 L114 46`, s, w - 0.6) : '';
-  if (ph === 1) {
-    return [
-      C(172, 44, 8, s, 2.2),
-      P(`M172 52 L124 58 L76 62`, s, w),
-      P(`M76 62 L56 ${GY}`, s, w),
-      P(`M76 62 L94 ${GY}`, s, w),
-      F(56, GY, s),
-      F(94, GY, s),
-      legLift
-    ].join('');
-  }
-  if (ph === 2) {
-    return [
-      C(170, 34, 8, s, 2.2),
-      P(`M170 42 L126 48 L80 52`, s, w),
-      P(`M80 52 L58 ${GY}`, s, w),
-      P(`M80 52 L98 ${GY}`, s, w),
-      F(58, GY, s),
-      F(98, GY, s),
-      singleLegAccent ? P(`M80 52 L104 30 L122 42`, s, w - 0.6) : ''
-    ].join('');
-  }
+  const w = LINE_W + 0.1;
+  const head = [168, 42];
+  const shoulder = [138, 52];
+  const hipD = ph === 2 ? [88, 48] : ph === 3 ? [90, 46] : [88, 58];
+  const kneeL = [72, 72];
+  const kneeR = [92, 72];
+  const footL = [62, GY];
+  const footR = [98, GY];
+  const lift = singleLegAccent ? poly([hipD, [102, 28], [118, 40]], s, w) + J(118, 40, s) : '';
   return [
-    C(172, 32, 8, s, 2.2),
-    P(`M172 40 L128 46 L82 50`, s, w),
-    P(`M82 50 L60 ${GY}`, s, w),
-    P(`M82 50 L100 ${GY}`, s, w),
-    F(60, GY, s),
-    F(100, GY, s)
+    H(head[0], head[1], 7.5, s),
+    poly([chin(head), shoulder, hipD], s, w),
+    poly([hipD, kneeL, footL], s, w),
+    poly([hipD, kneeR, footR], s, w),
+    lift,
+    jointsFrom([shoulder, hipD, kneeL, kneeR, footL, footR], s)
   ].join('');
 }
 
 function oneLegBridge(s, ph) {
-  const w = SW - 0.2;
-  if (ph === 1) {
-    return [
-      C(172, 44, 8, s, 2.2),
-      P(`M172 52 L124 58 L76 62`, s, w),
-      P(`M76 62 L56 ${GY}`, s, w),
-      P(`M76 62 L94 ${GY}`, s, w),
-      P(`M76 62 L108 38 L124 50`, s, w - 0.6),
-      F(56, GY, s),
-      F(94, GY, s),
-      F(124, 50, s)
-    ].join('');
-  }
-  if (ph === 2) {
-    return [
-      C(168, 32, 8, s, 2.2),
-      P(`M168 40 L122 46 L78 50`, s, w),
-      P(`M78 50 L58 ${GY}`, s, w),
-      P(`M78 50 L96 ${GY}`, s, w),
-      P(`M78 50 L110 28 L128 40`, s, w - 0.6),
-      F(58, GY, s),
-      F(96, GY, s),
-      F(128, 40, s)
-    ].join('');
-  }
-  return oneLegBridge(s, 1);
+  const w = LINE_W + 0.1;
+  const head = [166, 40];
+  const shoulder = [136, 50];
+  const hip = ph === 2 ? [86, 44] : [88, 56];
+  const kL = [70, 72];
+  const kR = [92, 72];
+  const fL = [60, GY];
+  const fR = [98, GY];
+  const lift = poly([hip, [104, 26], [122, 38]], s, w);
+  return [
+    H(head[0], head[1], 7.5, s),
+    poly([chin(head), shoulder, hip], s, w),
+    poly([hip, kL, fL], s, w),
+    poly([hip, kR, fR], s, w),
+    lift,
+    jointsFrom([shoulder, hip, kL, kR, fL, fR, [104, 26], [122, 38]], s)
+  ].join('');
 }
 
 function marchInPlace(s, ph) {

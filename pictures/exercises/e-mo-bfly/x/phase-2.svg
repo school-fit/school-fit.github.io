@@ -1,5 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<defs>
+  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
+    <feGaussianBlur stdDeviation="0.5" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
 <rect width="200" height="120" fill="#141414"/>
-<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
-<g transform="translate(34,4) scale(1.12)"><circle cx="60" cy="28" r="7" stroke="#ff5c5c" stroke-width="2"/><path d="M60 35 L60 50" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 50 L46 68 L40 86" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 50 L74 68 L80 86" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 40 L48 46" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 40 L72 46" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M52 68 L68 68" stroke="#ff5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="40" cy="86" r="3.5" fill="#ff5c5c"/><circle cx="80" cy="86" r="3.5" fill="#ff5c5c"/></g>
+<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
+<g filter="url(#sfGlow)"><g transform="translate(34,4) scale(1.12)"><circle cx="60" cy="28" r="7" stroke="#ff5c5c" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M60 35 L60 50" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 50 L46 68 L40 86" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 50 L74 68 L80 86" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 40 L48 46" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 40 L72 46" stroke="#ff5c5c" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M52 68 L68 68" stroke="#ff5c5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="40" cy="86" r="2.5" fill="#ff5c5c"/><circle cx="80" cy="86" r="2.5" fill="#ff5c5c"/></g></g>
 </svg>

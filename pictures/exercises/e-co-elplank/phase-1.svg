@@ -1,5 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<defs>
+  <filter id="sfGlow" x="-35%" y="-35%" width="170%" height="170%">
+    <feGaussianBlur stdDeviation="0.5" result="b"/>
+    <feMerge>
+      <feMergeNode in="b"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+</defs>
 <rect width="200" height="120" fill="#141414"/>
-<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
-<circle cx="48" cy="30" r="8" stroke="#c5e86d" stroke-width="2.2"/><path d="M48 38 L68 48 L108 58 L148 70 L172 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M68 48 L58 104 L50 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M68 48 L64 104 L76 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="108" r="3.5" fill="#c5e86d"/><circle cx="76" cy="108" r="3.5" fill="#c5e86d"/><circle cx="172" cy="108" r="3.5" fill="#c5e86d"/>
+<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5570" stroke-width="1.2" opacity="0.45"/>
+<g filter="url(#sfGlow)"><circle cx="40" cy="34" r="7.5" stroke="#c5e86d" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M40 41.5 L50 46 L62 54 L102 62 L136 66 L168 108" stroke="#c5e86d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M62 54 L54 106 L48 108" stroke="#c5e86d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M62 54 L58 106 L62 108" stroke="#c5e86d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="46" r="2.5" fill="#c5e86d"/><circle cx="62" cy="54" r="2.5" fill="#c5e86d"/><circle cx="102" cy="62" r="2.5" fill="#c5e86d"/><circle cx="136" cy="66" r="2.5" fill="#c5e86d"/><circle cx="168" cy="108" r="2.5" fill="#c5e86d"/><circle cx="54" cy="106" r="2.5" fill="#c5e86d"/><circle cx="48" cy="108" r="2.5" fill="#c5e86d"/><circle cx="58" cy="106" r="2.5" fill="#c5e86d"/><circle cx="62" cy="108" r="2.5" fill="#c5e86d"/></g>
 </svg>
