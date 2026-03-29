@@ -1,22 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 212" fill="none" aria-hidden="true">
-<defs>
-  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
-    <feGaussianBlur stdDeviation="0.45" result="b"/>
-    <feMerge>
-      <feMergeNode in="b"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  </filter>
-</defs>
-<rect width="300" height="212" fill="#0a0c10"/>
-<rect x="5" y="5" width="290" height="202" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
-<g transform="translate(50,12)">
-<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
-<g filter="url(#sfGlow)"><g transform="translate(34,4) scale(1.12)"><circle cx="60" cy="20" r="7" stroke="#c5e86d" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M60 27 L60 46" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 46 L48 88" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 46 L72 88" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 32 L42 18" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 32 L78 18" stroke="#c5e86d" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/><circle cx="48" cy="88" r="2.5" fill="#c5e86d"/><circle cx="72" cy="88" r="2.5" fill="#c5e86d"/></g></g>
-</g>
-<g transform="translate(18,58)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
-<path d="M0 0 L0 22 M-6 14 L0 22 L6 14"/></g><text x="14" y="34" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">plynule</text>
-
-<text x="150" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">PRŮBĚH</text>
-<text x="150" y="202" text-anchor="middle" fill="#8b9ab8" font-family="Segoe UI,system-ui,sans-serif" font-size="9.5">Plynulý průběh</text>
+<rect width="300" height="212" fill="#0d1019"/>
+<rect x="4" y="4" width="292" height="204" rx="14" fill="#131826" stroke="#283249" stroke-width="1"/>
+<line x1="150" y1="52" x2="122" y2="30" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="122" y1="30" x2="116" y2="12" stroke="#c5e86d" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="102" x2="124" y2="142" stroke="#c5e86d" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><line x1="124" y1="142" x2="120" y2="172" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="117" y1="173" x2="134" y2="173" stroke="#c5e86d" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="52" x2="150" y2="102" stroke="#c5e86d" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="102" x2="176" y2="144" stroke="#c5e86d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><line x1="176" y1="144" x2="180" y2="172" stroke="#c5e86d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="177" y1="173" x2="194" y2="173" stroke="#c5e86d" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="52" x2="178" y2="30" stroke="#c5e86d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="178" y1="30" x2="184" y2="12" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><path d="M136 18 C130 4 122 12 126 28 C130 26 135 22 136 18Z" fill="#c5e86d"/><circle cx="150" cy="22" r="13" fill="#c5e86d"/>
+<text x="150" y="190" text-anchor="middle" fill="#d8e4f8" font-family="'Segoe UI',system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.09em">PRŮBĚH</text>
+<text x="150" y="207" text-anchor="middle" fill="#5e7299" font-family="'Segoe UI',system-ui,sans-serif" font-size="9" font-weight="400">plynulý pohyb · bez výskoku</text>
 </svg>

@@ -1,22 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 212" fill="none" aria-hidden="true">
-<defs>
-  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
-    <feGaussianBlur stdDeviation="0.45" result="b"/>
-    <feMerge>
-      <feMergeNode in="b"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  </filter>
-</defs>
-<rect width="300" height="212" fill="#0a0c10"/>
-<rect x="5" y="5" width="290" height="202" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
-<g transform="translate(50,12)">
-<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
-<g filter="url(#sfGlow)"><circle cx="100" cy="26" r="7.5" stroke="#c5e86d" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M100 33.5 L100 38 L100 58" stroke="#c5e86d" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 58 L86 88 L82 108" stroke="#c5e86d" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 58 L114 88 L118 108" stroke="#c5e86d" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 38 L80 50" stroke="#c5e86d" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 38 L120 50" stroke="#c5e86d" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="38" r="2.5" fill="#c5e86d"/><circle cx="100" cy="58" r="2.5" fill="#c5e86d"/><circle cx="86" cy="88" r="2.5" fill="#c5e86d"/><circle cx="114" cy="88" r="2.5" fill="#c5e86d"/><circle cx="82" cy="108" r="2.5" fill="#c5e86d"/><circle cx="118" cy="108" r="2.5" fill="#c5e86d"/><circle cx="80" cy="50" r="2.5" fill="#c5e86d"/><circle cx="120" cy="50" r="2.5" fill="#c5e86d"/></g>
-</g>
-<g transform="translate(18,118)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
-<path d="M0 22 L0 0 M-6 8 L0 0 L6 8"/></g>
-
-<text x="150" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">ZÁVĚR</text>
-<text x="150" y="202" text-anchor="middle" fill="#8b9ab8" font-family="Segoe UI,system-ui,sans-serif" font-size="9.5">Dokonči v klidu</text>
+<rect width="300" height="212" fill="#0d1019"/>
+<rect x="4" y="4" width="292" height="204" rx="14" fill="#131826" stroke="#283249" stroke-width="1"/>
+<line x1="145" y1="62" x2="130" y2="88" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="130" y1="88" x2="120" y2="112" stroke="#c5e86d" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><line x1="148" y1="116" x2="132" y2="146" stroke="#c5e86d" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><line x1="132" y1="146" x2="140" y2="172" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="137" y1="173" x2="154" y2="173" stroke="#c5e86d" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="145" y1="62" x2="148" y2="116" stroke="#c5e86d" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/><line x1="148" y1="116" x2="166" y2="148" stroke="#c5e86d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><line x1="166" y1="148" x2="157" y2="172" stroke="#c5e86d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="154" y1="173" x2="171" y2="173" stroke="#c5e86d" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><line x1="145" y1="62" x2="168" y2="90" stroke="#c5e86d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="168" y1="90" x2="178" y2="114" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><path d="M132 30 C126 16 118 24 122 40 C126 38 131 34 132 30Z" fill="#c5e86d"/><circle cx="146" cy="34" r="13" fill="#c5e86d"/>
+<text x="150" y="190" text-anchor="middle" fill="#d8e4f8" font-family="'Segoe UI',system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.09em">ZÁVĚR</text>
+<text x="150" y="207" text-anchor="middle" fill="#5e7299" font-family="'Segoe UI',system-ui,sans-serif" font-size="9" font-weight="400">kontrolovaný návrat</text>
 </svg>

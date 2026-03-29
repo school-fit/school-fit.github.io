@@ -1,23 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 212" fill="none" aria-hidden="true">
-<defs>
-  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
-    <feGaussianBlur stdDeviation="0.45" result="b"/>
-    <feMerge>
-      <feMergeNode in="b"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  </filter>
-</defs>
-<rect width="300" height="212" fill="#0a0c10"/>
-<rect x="5" y="5" width="290" height="202" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
-<g transform="translate(50,12)">
-<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
-<g filter="url(#sfGlow)"><line x1="58" y1="68" x2="98" y2="68" stroke="#e8943a" stroke-width="12" stroke-linecap="round" opacity="0.14"/><line x1="98" y1="68" x2="132" y2="72" stroke="#e8943a" stroke-width="10" stroke-linecap="round" opacity="0.12"/><circle cx="40" cy="44" r="7" stroke="#e8943a" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M40 51 L58 68 L98 68 L132 72 L168 108" stroke="#e8943a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 68 L50 82 L44 108" stroke="#e8943a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 68 L56 84 L58 108" stroke="#e8943a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="58" cy="68" r="2.5" fill="#e8943a"/><circle cx="98" cy="68" r="2.5" fill="#e8943a"/><circle cx="132" cy="72" r="2.5" fill="#e8943a"/><circle cx="168" cy="108" r="2.5" fill="#e8943a"/><circle cx="50" cy="82" r="2.5" fill="#e8943a"/><circle cx="56" cy="84" r="2.5" fill="#e8943a"/><circle cx="44" cy="108" r="2.5" fill="#e8943a"/><circle cx="58" cy="108" r="2.5" fill="#e8943a"/></g>
-</g>
-<g transform="translate(18,58)" stroke="#e8edf7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.92">
-<path d="M0 0 L0 22 M-6 14 L0 22 L6 14"/></g><g transform="translate(14,36)" stroke="#e8943a" fill="none" stroke-width="1.35" opacity="0.9">
-<path d="M4 2 C0 -2 -4 2 -2 6"/><path d="M10 2 C14 -2 18 2 16 6"/></g><text x="18" y="32" fill="#9aa8c4" font-family="Segoe UI,system-ui,sans-serif" font-size="8.5">nádech</text>
-
-<text x="150" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">PRŮBĚH</text>
-<text x="150" y="202" text-anchor="middle" fill="#8b9ab8" font-family="Segoe UI,system-ui,sans-serif" font-size="9.5">Klidné tempo</text>
+<rect width="300" height="212" fill="#0d1019"/>
+<rect x="4" y="4" width="292" height="204" rx="14" fill="#131826" stroke="#283249" stroke-width="1"/>
+<line x1="216" y1="80" x2="200" y2="94" stroke="#e8943a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="200" y1="94" x2="188" y2="112" stroke="#e8943a" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="84" x2="112" y2="100" stroke="#e8943a" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><line x1="112" y1="100" x2="74" y2="110" stroke="#e8943a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="216" y1="80" x2="150" y2="84" stroke="#e8943a" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="84" x2="116" y2="96" stroke="#e8943a" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><line x1="116" y1="96" x2="78" y2="106" stroke="#e8943a" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="216" y1="80" x2="198" y2="90" stroke="#e8943a" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="198" y1="90" x2="186" y2="108" stroke="#e8943a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><path d="M254 56 C260 42 268 50 264 66 C260 64 255 60 254 56Z" fill="#e8943a"/><circle cx="240" cy="60" r="13" fill="#e8943a"/>
+<text x="150" y="190" text-anchor="middle" fill="#d8e4f8" font-family="'Segoe UI',system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.09em">PRŮBĚH</text>
+<text x="150" y="207" text-anchor="middle" fill="#5e7299" font-family="'Segoe UI',system-ui,sans-serif" font-size="9" font-weight="400">klidné tempo · dívej se dolů</text>
 </svg>

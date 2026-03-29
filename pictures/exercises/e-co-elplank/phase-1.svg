@@ -1,21 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 212" fill="none" aria-hidden="true">
-<defs>
-  <filter id="sfGlow" x="-40%" y="-40%" width="180%" height="180%">
-    <feGaussianBlur stdDeviation="0.45" result="b"/>
-    <feMerge>
-      <feMergeNode in="b"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  </filter>
-</defs>
-<rect width="300" height="212" fill="#0a0c10"/>
-<rect x="5" y="5" width="290" height="202" rx="16" ry="16" fill="#131822" stroke="#3a4558" stroke-width="1.2"/>
-<g transform="translate(50,12)">
-<line x1="8" y1="108" x2="192" y2="108" stroke="#4a5f82" stroke-width="1" opacity="0.4"/>
-<g filter="url(#sfGlow)"><circle cx="40" cy="34" r="7.5" stroke="#c5e86d" stroke-width="1.85" fill="none" opacity="0.98"/><path d="M40 41.5 L50 46 L62 54 L102 62 L136 66 L168 108" stroke="#c5e86d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M62 54 L54 106 L48 108" stroke="#c5e86d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M62 54 L58 106 L62 108" stroke="#c5e86d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="46" r="2.5" fill="#c5e86d"/><circle cx="62" cy="54" r="2.5" fill="#c5e86d"/><circle cx="102" cy="62" r="2.5" fill="#c5e86d"/><circle cx="136" cy="66" r="2.5" fill="#c5e86d"/><circle cx="168" cy="108" r="2.5" fill="#c5e86d"/><circle cx="54" cy="106" r="2.5" fill="#c5e86d"/><circle cx="48" cy="108" r="2.5" fill="#c5e86d"/><circle cx="58" cy="106" r="2.5" fill="#c5e86d"/><circle cx="62" cy="108" r="2.5" fill="#c5e86d"/></g>
-</g>
-
-
-<text x="150" y="184" text-anchor="middle" fill="#eef2f9" font-family="Segoe UI,system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.14em">VÝCHOZÍ</text>
-
+<rect width="300" height="212" fill="#0d1019"/>
+<rect x="4" y="4" width="292" height="204" rx="14" fill="#131826" stroke="#283249" stroke-width="1"/>
+<line x1="222" y1="64" x2="206" y2="96" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="206" y1="96" x2="192" y2="106" stroke="#c5e86d" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="80" x2="112" y2="98" stroke="#c5e86d" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><line x1="112" y1="98" x2="74" y2="110" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><line x1="222" y1="64" x2="150" y2="80" stroke="#c5e86d" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/><line x1="150" y1="80" x2="116" y2="94" stroke="#c5e86d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><line x1="116" y1="94" x2="78" y2="106" stroke="#c5e86d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="222" y1="64" x2="204" y2="92" stroke="#c5e86d" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><line x1="204" y1="92" x2="190" y2="102" stroke="#c5e86d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/><path d="M258 46 C264 32 272 40 268 56 C264 54 259 50 258 46Z" fill="#c5e86d"/><circle cx="244" cy="50" r="13" fill="#c5e86d"/>
+<text x="150" y="190" text-anchor="middle" fill="#d8e4f8" font-family="'Segoe UI',system-ui,sans-serif" font-size="13.5" font-weight="700" letter-spacing="0.09em">VÝCHOZÍ</text>
+<text x="150" y="207" text-anchor="middle" fill="#5e7299" font-family="'Segoe UI',system-ui,sans-serif" font-size="9" font-weight="400">výchozí poloha</text>
 </svg>
