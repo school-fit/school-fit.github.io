@@ -315,7 +315,7 @@ function renderExercisePhaseRow(slug, tierDir) {
   if (!slug) return '';
   const td = tierDir || 'm';
   const srcs = [1,2,3].map(n =>
-    exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-' + n + '.png'));
+    exerciseAssetUrl('pictures/exercises/' + slug + '/phase-' + n + '.png'));
   const labs = EXERCISE_PHASE_LABELS;
   const slides = srcs.map((src, i) =>
     '<div class="pv-slide' + (i===0?' pv-active':'') + '">' +
