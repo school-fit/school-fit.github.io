@@ -1,16 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" fill="none" aria-hidden="true">
-  <rect width="120" height="100" fill="#141414"/>
-  <line x1="8" y1="88" x2="112" y2="88" stroke="#2a2a2a" stroke-width="1.5"/>
-  <!-- hlava -->
-  <circle cx="26" cy="38" r="7" stroke="#e8943a" stroke-width="2"/>
-  <!-- trup vodorovn -->
-  <path d="M33 44 L88 46" stroke="#e8943a" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- nohy -->
-  <path d="M88 46 L98 86" stroke="#e8943a" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- pa~e propnut� -->
-  <path d="M40 46 L40 88" stroke="#e8943a" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M72 46 L72 88" stroke="#e8943a" stroke-width="2.5" stroke-linecap="round"/>
-  <circle cx="40" cy="90" r="3" fill="#e8943a"/>
-  <circle cx="72" cy="90" r="3" fill="#e8943a"/>
-  <circle cx="98" cy="88" r="3" fill="#e8943a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<rect width="200" height="120" fill="#141414"/>
+<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
+<circle cx="44" cy="34" r="8" stroke="#e8943a" stroke-width="2.2"/><path d="M44 42 L60 54 L102 64 L138 76 L168 108" stroke="#e8943a" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 54 L46 108" stroke="#e8943a" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 54 L74 108" stroke="#e8943a" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="46" cy="108" r="3.5" fill="#e8943a"/><circle cx="74" cy="108" r="3.5" fill="#e8943a"/><circle cx="168" cy="108" r="3.5" fill="#e8943a"/>
 </svg>

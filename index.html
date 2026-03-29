@@ -291,15 +291,29 @@ const EXERCISE_IMG_SLUGS = [
 
 const TIER_DIR_BY_CONTENT = ['e', 'm', 'h', 'x'];
 
+/**
+ * Předpona ke statickým souborům. Na GitHub Pages bývá URL /nazev-repa bez koncového lomítka —
+ * pak by relativní „pictures/…“ šlo na špatné místo (404). Vždy sjednotíme na adresář stránky.
+ */
+function appAssetPrefix() {
+  if (typeof location === 'undefined') return '';
+  const path = location.pathname || '/';
+  if (path.endsWith('/')) return path;
+  const last = path.slice(path.lastIndexOf('/') + 1);
+  if (last.includes('.')) return path.slice(0, path.lastIndexOf('/') + 1);
+  return path + '/';
+}
+
+function exerciseAssetUrl(rel) {
+  const clean = String(rel).replace(/^\//, '');
+  const pre = appAssetPrefix();
+  if (pre === '/') return '/' + clean;
+  return pre.replace(/\/?$/, '/') + clean;
+}
+
 function renderExercisePhaseRow(slug, tierDir) {
   if (!slug) return '';
   const td = tierDir || 'm';
-  const onGh =
-    typeof location !== 'undefined' &&
-    (location.hostname === 'school-fit.github.io' || location.hostname.endsWith('.github.io'));
-  const ghTip = onGh
-    ? '<p class="ex-phases-gh-tip">💡 Na GitHub Pages musí být v repu nahraná celá složka <code>pictures/exercises</code> (stejně jako <code>index.html</code>). Bez ní server vrací 404 a nic se neukáže.</p>'
-    : '';
   let html =
     '<div class="exercise-phases-wrap" data-slug="' +
     slug +
@@ -309,26 +323,19 @@ function renderExercisePhaseRow(slug, tierDir) {
     '<div class="ex-phases-intro">' +
     '<span class="ex-phases-intro-title">🖼️ Nakreslený návod · 3 fáze</span> ' +
     '<span class="ex-phases-intro-hint">Klepni na obrázek — zvětší se.</span></div>' +
-    ghTip +
     '<div class="ex-phases-links" onclick="event.stopPropagation()">' +
     '<span class="ex-phases-links-lab">Otevřít jako soubor:</span> ' +
-    '<a href="pictures/exercises/' +
-    slug +
-    '/' +
-    td +
-    '/phase-1.svg" target="_blank" rel="noopener">Výchozí</a>' +
+    '<a href="' +
+    exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-1.svg') +
+    '" target="_blank" rel="noopener">Výchozí</a>' +
     '<span class="ex-phases-links-sep">·</span>' +
-    '<a href="pictures/exercises/' +
-    slug +
-    '/' +
-    td +
-    '/phase-2.svg" target="_blank" rel="noopener">Průběh</a>' +
+    '<a href="' +
+    exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-2.svg') +
+    '" target="_blank" rel="noopener">Průběh</a>' +
     '<span class="ex-phases-links-sep">·</span>' +
-    '<a href="pictures/exercises/' +
-    slug +
-    '/' +
-    td +
-    '/phase-3.svg" target="_blank" rel="noopener">Závěr</a>' +
+    '<a href="' +
+    exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-3.svg') +
+    '" target="_blank" rel="noopener">Závěr</a>' +
     '</div>' +
     '<p class="ex-phases-missing-note" role="status"><strong>To se někdy stane.</strong> Nejčastěji: (1) na webu v repozitáři chybí složka <code>pictures/exercises</code> — přidej ji a pushni; (2) otevíráš HTML z disku (<code>file://</code>) — spusť Live Server nebo nasaď na Pages; (3) stará cache PWA — zkus anonymní okno. Odkazy „Výchozí / Průběh / Závěr“ výše ověří, jestli soubory na serveru vůbec jsou.</p>' +
     '<div class="exercise-phases" data-slug="' +
@@ -337,7 +344,8 @@ function renderExercisePhaseRow(slug, tierDir) {
     td +
     '" role="group" aria-label="Fáze cviku">';
   for (let n = 1; n <= 3; n++) {
-    html += `<figure class="ex-phase"><img src="pictures/exercises/${slug}/${td}/phase-${n}.svg" alt="" loading="lazy" decoding="async" data-slug="${slug}" data-n="${n}" data-td="${td}" tabindex="0" onerror="exPhaseImgTrySvg(this)" onclick="event.stopPropagation();openExercisePhaseLightbox(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openExercisePhaseLightbox(this);}"/><figcaption>${EXERCISE_PHASE_LABELS[n - 1]}</figcaption></figure>`;
+    const src = exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-' + n + '.svg');
+    html += `<figure class="ex-phase"><img src="${src}" alt="" loading="lazy" decoding="async" data-slug="${slug}" data-n="${n}" data-td="${td}" tabindex="0" onerror="exPhaseImgTrySvg(this)" onclick="event.stopPropagation();openExercisePhaseLightbox(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openExercisePhaseLightbox(this);}"/><figcaption>${EXERCISE_PHASE_LABELS[n - 1]}</figcaption></figure>`;
   }
   html += '</div></div>';
   return html;
@@ -349,9 +357,9 @@ window.exPhaseImgTrySvg = function (img) {
   const td = img.dataset.td || 'm';
   const step = parseInt(img.dataset.fallbackStep || '0', 10);
   const chain = [
-    `pictures/exercises/${slug}/phase-${n}.svg`,
-    `pictures/exercises/${slug}/phase-${n}.png`,
-    `pictures/exercises/${slug}/m/phase-${n}.svg`
+    exerciseAssetUrl('pictures/exercises/' + slug + '/phase-' + n + '.svg'),
+    exerciseAssetUrl('pictures/exercises/' + slug + '/phase-' + n + '.png'),
+    exerciseAssetUrl('pictures/exercises/' + slug + '/m/phase-' + n + '.svg')
   ];
   if (step >= chain.length) {
     const fig = img.closest('.ex-phase');
@@ -376,9 +384,9 @@ function finalizeExercisePhaseImages() {
       const p2 = new Image();
       p2.onload = ok;
       p2.onerror = fail;
-      p2.src = 'pictures/exercises/' + slug + '/phase-1.svg';
+      p2.src = exerciseAssetUrl('pictures/exercises/' + slug + '/phase-1.svg');
     };
-    probe.src = 'pictures/exercises/' + slug + '/' + td + '/phase-1.svg';
+    probe.src = exerciseAssetUrl('pictures/exercises/' + slug + '/' + td + '/phase-1.svg');
   });
 }
 
@@ -2698,12 +2706,6 @@ tryAutoLogin();
     border:1px solid rgba(255, 143, 171, 0.35);
     border-radius:12px;
   }
-  .ex-phases-gh-tip {
-    font-size:0.68rem; line-height:1.4; color:var(--muted); margin:0 0 8px;
-    padding:8px 10px; background:rgba(255, 229, 102, 0.08); border-radius:10px;
-    border:1px solid rgba(255, 229, 102, 0.2);
-  }
-  .ex-phases-gh-tip code { font-size:0.62rem; background:var(--surface2); padding:1px 5px; border-radius:4px; }
   .ex-phases-missing-all .ex-phases-intro-hint { display:none; }
   .ex-phases-missing-all .ex-phases-missing-note { display:block; }
   .ex-phases-missing-all .exercise-phases { display:none !important; }

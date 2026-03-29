@@ -1,13 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" fill="none" aria-hidden="true">
-  <rect width="120" height="100" fill="#141414"/>
-  <line x1="8" y1="88" x2="112" y2="88" stroke="#2a2a2a" stroke-width="1.5"/>
-  <circle cx="34" cy="58" r="7" stroke="#c5e86d" stroke-width="2"/>
-  <!-- trup nízko -->
-  <path d="M41 62 L78 66" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M78 66 L94 86" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M48 64 L42 78 L38 88" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M66 65 L70 78 L72 88" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="38" cy="90" r="3" fill="#c5e86d"/>
-  <circle cx="72" cy="90" r="3" fill="#c5e86d"/>
-  <circle cx="94" cy="88" r="3" fill="#c5e86d"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<rect width="200" height="120" fill="#141414"/>
+<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
+<circle cx="48" cy="38" r="8" stroke="#c5e86d" stroke-width="2.2"/><path d="M48 46 L58 58 L100 66 L136 78 L166 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 58 L46 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 58 L72 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="46" cy="108" r="3.5" fill="#c5e86d"/><circle cx="72" cy="108" r="3.5" fill="#c5e86d"/><circle cx="166" cy="108" r="3.5" fill="#c5e86d"/>
 </svg>

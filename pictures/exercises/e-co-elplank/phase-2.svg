@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" fill="none" aria-hidden="true">
-<rect width="120" height="100" fill="#141414"/>
-<line x1="8" y1="88" x2="112" y2="88" stroke="#2a2a2a" stroke-width="1.5"/><circle cx="32" cy="42" r="7" stroke="#c5e86d" stroke-width="2"/><path d="M39 48 L82 50" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><path d="M82 50 L92 86" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><path d="M48 52 L48 88" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><path d="M68 52 L68 88" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><circle cx="48" cy="90" r="3" fill="#c5e86d"/><circle cx="68" cy="90" r="3" fill="#c5e86d"/><circle cx="92" cy="88" r="3" fill="#c5e86d"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<rect width="200" height="120" fill="#141414"/>
+<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
+<circle cx="50" cy="32" r="8" stroke="#c5e86d" stroke-width="2.2"/><path d="M50 40 L70 50 L110 60 L150 72 L174 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M70 50 L60 104 L52 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M70 50 L66 104 L78 108" stroke="#c5e86d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="52" cy="108" r="3.5" fill="#c5e86d"/><circle cx="78" cy="108" r="3.5" fill="#c5e86d"/><circle cx="174" cy="108" r="3.5" fill="#c5e86d"/>
 </svg>

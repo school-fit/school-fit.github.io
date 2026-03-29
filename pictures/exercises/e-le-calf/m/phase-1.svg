@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" fill="none" aria-hidden="true">
-<rect width="120" height="100" fill="#141414"/>
-<line x1="8" y1="92" x2="112" y2="92" stroke="#2a2a2a" stroke-width="1.5"/><circle cx="58" cy="22" r="7" stroke="#c5e86d" stroke-width="2"/><path d="M58 29 L58 52" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><path d="M58 52 L54 90" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><path d="M58 52 L62 90" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round"/><circle cx="54" cy="88" r="4" fill="#c5e86d"/><circle cx="62" cy="88" r="4" fill="#c5e86d"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<rect width="200" height="120" fill="#141414"/>
+<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
+<g transform="translate(34,4) scale(1.12)"><circle cx="60" cy="18" r="7" stroke="#c5e86d" stroke-width="2"/><path d="M60 25 L60 44" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 44 L56 88" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 44 L64 88" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 30 L52 38" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 30 L68 38" stroke="#c5e86d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="56" cy="88" r="3.5" fill="#c5e86d"/><circle cx="64" cy="88" r="3.5" fill="#c5e86d"/></g>
 </svg>

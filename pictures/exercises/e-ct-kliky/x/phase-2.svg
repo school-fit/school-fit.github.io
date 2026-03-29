@@ -1,14 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" fill="none" aria-hidden="true">
-  <rect width="120" height="100" fill="#141414"/>
-  <line x1="8" y1="88" x2="112" y2="88" stroke="#2a2a2a" stroke-width="1.5"/>
-  <circle cx="30" cy="48" r="7" stroke="#ff5c5c" stroke-width="2"/>
-  <!-- trup aikmo dolo -->
-  <path d="M37 52 L82 58" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M82 58 L96 86" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- lokty ohnut� ~90� -->
-  <path d="M45 54 L40 72 L40 88" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M68 56 L72 72 L72 88" stroke="#ff5c5c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="40" cy="90" r="3" fill="#ff5c5c"/>
-  <circle cx="72" cy="90" r="3" fill="#ff5c5c"/>
-  <circle cx="96" cy="88" r="3" fill="#ff5c5c"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none" aria-hidden="true">
+<rect width="200" height="120" fill="#141414"/>
+<line x1="10" y1="108" x2="190" y2="108" stroke="#2a2a2a" stroke-width="2"/>
+<circle cx="52" cy="48" r="8" stroke="#ff5c5c" stroke-width="2.2"/><path d="M52 56 L64 72 L96 76 L130 84 L162 108" stroke="#ff5c5c" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M64 72 L44 108" stroke="#ff5c5c" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M64 72 L80 108" stroke="#ff5c5c" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="44" cy="108" r="3.5" fill="#ff5c5c"/><circle cx="80" cy="108" r="3.5" fill="#ff5c5c"/><circle cx="162" cy="108" r="3.5" fill="#ff5c5c"/>
 </svg>
